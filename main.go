@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"math/rand/v2"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -38,7 +39,7 @@ var actionStrings = map[Action]string{
 	Boost:  "⬆️ **BOOST** ⬆️",
 	Attack: "⚔️ **ATTACK** ⚔️",
 	Guard:  "🛡️ **GUARD** 🛡️",
-	Heal:   "🏥 **HEAL** 🏥",
+	Heal:   "✨ **HEAL** ✨",
 }
 
 var actionCommands = map[Action]string{
@@ -58,15 +59,16 @@ func MakeActionOptionList () string {
 
 type Player struct {
 	User *discordgo.User
-	DisplayName string
 	HP int
+	ShieldBreakCounter int
 	Advantage int
 	Boost int
 	currentAction Action
+	actionLocked bool
 }
 
-func NewPlayer(u *discordgo.User, displayName string) Player {
-	return Player{ User:u, DisplayName: displayName, HP:BASE_MAX_HEALTH, Advantage:0, Boost:0, currentAction:Unchosen }
+func NewPlayer(u *discordgo.User) Player {
+	return Player{ User:u, HP:BASE_MAX_HEALTH, Advantage:0, Boost:0, currentAction:Unchosen, actionLocked: false }
 }
 
 func (p Player) GetAction() Action {
@@ -81,8 +83,16 @@ func (p *Player) SetAction(a Action) bool {
 	return true
 }
 
-func (p *Player) ClearAction() {
-	p.currentAction = Unchosen
+func (p *Player) UnlockAction() {
+	p.actionLocked = false
+}
+
+func (p *Player) ClearAction() bool {
+	if !p.actionLocked && p.currentAction != Unchosen {
+		p.currentAction = Unchosen
+		return true
+	}
+	return false
 }
 
 type SessionStateGameOngoing struct {
@@ -134,46 +144,76 @@ func (game *SessionStateGameOngoing) IsGameOver() (bool, bool, *Player, *Player)
 
 const BASE_MAX_HEALTH int = 3
 
-func (game *SessionStateGameOngoing) NextStateFromActions() string {
+func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Player) {
 	var challengerGainedAdvantageThisTurn bool = false
 	var challengeeGainedAdvantageThisTurn bool = false
 
 	challengerAction := game.Challenger.GetAction()
 	challengeeAction := game.Challengee.GetAction()
 
+	defer game.Challenger.UnlockAction()
 	defer game.Challenger.ClearAction()
+	defer game.Challengee.UnlockAction()
 	defer game.Challengee.ClearAction()
 
 	actionLog := ""
 
+	if game.Challenger.ShieldBreakCounter > 0 {
+		roll := rand.Float32()
+		if roll >= (float32(game.Challenger.ShieldBreakCounter) / float32(game.Challenger.ShieldBreakCounter + 1)) {
+			game.Challenger.ShieldBreakCounter = 0
+		} else {
+			game.Challenger.ShieldBreakCounter--
+		}
+
+		if game.Challenger.ShieldBreakCounter == 0 {
+			actionLog += game.Challenger.User.Mention() + "'s shield was mended! "
+		} else {
+			actionLog += game.Challenger.User.Mention() + "'s shield is still broken. "
+		}
+	}
+
 	// Attack
 	if challengerAction == Attack {
 		if challengeeAction != Attack || game.Challenger.Advantage >= game.Challengee.Advantage {
-			actionLog += game.Challenger.User.Mention() + actionStrings[Attack] + "s"
+			actionLog += game.Challenger.User.Mention() + " " + actionStrings[Attack] + "s"
 			// Guard
-			if challengeeAction == Guard {
+			if challengeeAction == Guard && game.Challengee.ShieldBreakCounter == 0 {
 				actionLog += ", but " + game.Challengee.User.Mention() + actionStrings[Guard] + "s and takes no damage. "
 				boostDifference := game.Challengee.Boost - game.Challenger.Boost
 				if boostDifference < 0 {
-					boostDifference = -1
-				}
-				if game.Challengee.Advantage >= game.Challenger.Advantage && game.Challengee.Boost >= game.Challenger.Boost && game.Challengee.Advantage < boostDifference + 1 {
-					game.Challengee.Advantage = boostDifference + 1
-					actionLog += game.Challengee.DisplayName + " gains advantage"
-					if boostDifference > 0 {
-						actionLog += " boosted by " + strconv.Itoa(boostDifference)
+					db := -boostDifference
+
+					shieldBreakProbability := float32(db) / float32(db + 1)
+
+					roll := rand.Float32()
+					if roll < shieldBreakProbability {
+						game.Challengee.ShieldBreakCounter = db
+						actionLog += game.Challengee.User.Mention() + "'s shield broke!"
 					}
+				}
+				if game.Challengee.Advantage >= game.Challenger.Advantage && boostDifference >= 0 {
+					if (game.Challengee.Advantage < boostDifference + 1) {
+						game.Challengee.Advantage = boostDifference + 1
+						actionLog += game.Challengee.User.Mention() + " gains advantage"
+						if boostDifference > 0 {
+							actionLog += " boosted by " + strconv.Itoa(boostDifference)
+						}
+					} else {
+						actionLog += game.Challengee.User.Mention() + " retains advantage"
+					}
+
 					actionLog += "."
 					challengeeGainedAdvantageThisTurn = true
 				} else {
-					actionLog += "Because " + game.Challenger.DisplayName
+					actionLog += "Because " + game.Challenger.User.Mention()
 					if game.Challengee.Advantage < game.Challenger.Advantage {
 						actionLog += " had advantage over "
 					} else {
 						actionLog += " was more boosted than "
 						
 					}
-					actionLog += game.Challengee.DisplayName + ", " + game.Challengee.DisplayName + " gains no advantage."
+					actionLog += game.Challengee.User.Mention() + ", " + game.Challengee.User.Mention() + " gains no advantage."
 				}
 			} else {
 				if challengeeAction == Attack && game.Challenger.Advantage > game.Challengee.Advantage {
@@ -191,34 +231,44 @@ func (game *SessionStateGameOngoing) NextStateFromActions() string {
 	}
 	if challengeeAction == Attack {
 		if challengerAction != Attack || game.Challengee.Advantage >= game.Challenger.Advantage {
-			if challengerAction == Attack {
-				actionLog += " just as "
-			}
-			actionLog += game.Challengee.User.Mention() + actionStrings[Attack] + "s"
+			actionLog += game.Challengee.User.Mention() + " " + actionStrings[Attack] + "s"
 			// Guard
-			if challengerAction == Guard {
+			if challengerAction == Guard && game.Challenger.ShieldBreakCounter == 0 {
 				actionLog += ", but " + game.Challenger.User.Mention() + actionStrings[Guard] + "s and takes no damage. "
 				boostDifference := game.Challenger.Boost - game.Challengee.Boost
 				if boostDifference < 0 {
-					boostDifference = -1
-				}
-				if game.Challenger.Advantage >= game.Challengee.Advantage && game.Challenger.Boost >= game.Challengee.Boost && game.Challenger.Advantage < boostDifference + 1 {
-					game.Challenger.Advantage = boostDifference + 1
-					actionLog += game.Challenger.DisplayName + " gains advantage"
-					if boostDifference > 0 {
-						actionLog += " boosted by " + strconv.Itoa(boostDifference)
+					db := -boostDifference
+
+					shieldBreakProbability := float32(db) / float32(db + 1)
+
+					roll := rand.Float32()
+					if roll < shieldBreakProbability {
+						game.Challenger.ShieldBreakCounter = db
+						actionLog += game.Challenger.User.Mention() + "'s shield broke! "
 					}
+				}
+				if game.Challenger.Advantage >= game.Challengee.Advantage && boostDifference >= 0 {
+					if (game.Challenger.Advantage < boostDifference + 1) {
+						game.Challenger.Advantage = boostDifference + 1
+						actionLog += game.Challenger.User.Mention() + " gains advantage"
+						if boostDifference > 0 {
+							actionLog += " boosted by " + strconv.Itoa(boostDifference)
+						}
+					} else {
+						actionLog += game.Challenger.User.Mention() + " retains advantage"
+					}
+
 					actionLog += "."
 					challengerGainedAdvantageThisTurn = true
 				} else {
-					actionLog += "Because " + game.Challengee.DisplayName
+					actionLog += "Because " + game.Challengee.User.Mention()
 					if game.Challenger.Advantage < game.Challengee.Advantage {
 						actionLog += " had advantage over "
 					} else {
 						actionLog += " was more boosted than "
 						
 					}
-					actionLog += game.Challenger.DisplayName + ", " + game.Challenger.DisplayName + " gains no advantage."
+					actionLog += game.Challenger.User.Mention() + ", " + game.Challenger.User.Mention() + " gains no advantage."
 				}
 			} else {
 				if challengerAction == Attack && game.Challengee.Advantage > game.Challenger.Advantage {
@@ -244,15 +294,20 @@ func (game *SessionStateGameOngoing) NextStateFromActions() string {
 	}
 	defer incRound()
 
-	if isOver && isDraw {
-		actionLog += game.Challenger.DisplayName + " and " + game.Challengee.DisplayName + " are defeated on the same turn, resulting in a **draw**."
-		return actionLog
+	if isOver {
+		if isDraw {
+			actionLog += game.Challenger.User.Mention() + " and " + game.Challengee.User.Mention() + " are defeated on the same turn, resulting in a **draw**."
+			return actionLog, isOver, winner
+		} else {
+			actionLog += winner.User.Mention() + " secures **victory**!"
+			return actionLog, isOver, winner
+		}
 	}
 
 	performAndReportBoostExpendature := func (p *Player, al *string) {
 		if !isOver {
 			if p.Boost > 0 {
-				*al += p.DisplayName + "'s boost is expended to 0."
+				*al += p.User.Mention() + "'s boost is expended to 0."
 			}
 			p.Boost = 0
 		}
@@ -288,7 +343,7 @@ func (game *SessionStateGameOngoing) NextStateFromActions() string {
 
 		if isOver && challengeeAction == Attack && winner == &game.Challengee {
 			actionLog += " before " + game.Challenger.User.Mention() + " had a chance to " + actionStrings[Heal] + "."
-			return actionLog
+			return actionLog, isOver, winner
 		}
 
 		if challengeeAction == Attack || challengeeAction == Guard {
@@ -335,7 +390,7 @@ func (game *SessionStateGameOngoing) NextStateFromActions() string {
 
 		if isOver && challengerAction == Attack && winner == &game.Challenger {
 			actionLog += " before " + game.Challengee.User.Mention() + " had a chance to " + actionStrings[Heal] + "."
-			return actionLog
+			return actionLog, isOver, winner
 		}
 
 		if challengerAction == Attack || challengerAction == Guard {
@@ -372,21 +427,27 @@ func (game *SessionStateGameOngoing) NextStateFromActions() string {
 	if !isOver {
 		if !challengerGainedAdvantageThisTurn && game.Challenger.Advantage > 0 {
 			game.Challenger.Advantage -= 1
-			actionLog += " " + game.Challenger.DisplayName + "'s advantage falls to " + strconv.Itoa(game.Challenger.Advantage) + "."
+			actionLog += " " + game.Challenger.User.Mention() + "'s advantage falls to " + strconv.Itoa(game.Challenger.Advantage) + "."
 		}
 
 		if !challengeeGainedAdvantageThisTurn && game.Challengee.Advantage > 0 {
 			game.Challengee.Advantage -= 1
-			actionLog += " " + game.Challengee.DisplayName + "'s advantage falls to " + strconv.Itoa(game.Challengee.Advantage) + "."
+			actionLog += " " + game.Challengee.User.Mention() + "'s advantage falls to " + strconv.Itoa(game.Challengee.Advantage) + "."
 		}
 	}
 
-	return actionLog
+	return actionLog, isOver, winner
 }
 
 func (game *SessionStateGameOngoing) ToString() string {
 	gameString := "# Round " + strconv.Itoa(game.Round) + "\n"
 	for _, player := range [2]Player{game.Challenger, game.Challengee} {
+		shield := " 🛡️"
+		if player.ShieldBreakCounter == 0 {
+			shield += "✔️ "
+		} else {
+			shield += "❌ "
+		}
 		boost := ""
 		if player.Boost > 0 {
 			boost = " ⬆️"
@@ -402,7 +463,7 @@ func (game *SessionStateGameOngoing) ToString() string {
 			}
 			advantage += "]"
 		}
-		gameString += player.User.Mention() + ": 😐 ❤️x" + strconv.Itoa(player.HP) + boost + advantage + "\n"
+		gameString += "🤺 " + player.User.Mention() + ": ❤️x" + strconv.Itoa(player.HP) + shield + boost + advantage + "\n"
 	}
 	return gameString
 }
@@ -509,7 +570,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			// start a new thread for a game
 			thread, err := s.ThreadStart(m.ChannelID,
 				challenger.Username + "'s BAGH Game Against " + acceptor.Username,
-				discordgo.ChannelTypeGuildPrivateThread, 1440)
+				discordgo.ChannelTypeGuildPrivateThread, 60)
 			if err != nil {
 				s.ChannelMessageSendReply(m.ChannelID, "There was a problem starting a thread.", m.Reference())
 				fmt.Println(err)
@@ -518,7 +579,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			s.ChannelMessageSendReply(m.ChannelID, acceptor.Mention() + " has accepted " + challenger.Mention() + "'s challenge. Check for a new game thread and your DMs.", m.Reference())
 
 			// make a game object and put the thread reference there
-			newGame := SessionStateGameOngoing{Thread: thread, Challenger: NewPlayer(challenger, challenger.Username), Challengee: NewPlayer(acceptor, acceptor.Username), Round: 1}
+			newGame := SessionStateGameOngoing{Thread: thread, Challenger: NewPlayer(challenger), Challengee: NewPlayer(acceptor), Round: 1}
 
 			Games[challenger.ID] = &newGame
 			Games[acceptor.ID] = &newGame
@@ -531,14 +592,10 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 			challengerDMChannel, _ := s.UserChannelCreate(challenger.ID)
 			
-			s.ChannelMessageSend(challengerDMChannel.ID, dmIntroString)
-			s.ChannelMessageSend(challengerDMChannel.ID, linkToGame)
-			s.ChannelMessageSend(challengerDMChannel.ID, MakeActionOptionList())
+			s.ChannelMessageSend(challengerDMChannel.ID, dmIntroString + "\n\n" + linkToGame + "\n\n" + MakeActionOptionList())
 
 			acceptorDMChannel, _ := s.UserChannelCreate(acceptor.ID)
-			s.ChannelMessageSend(acceptorDMChannel.ID, dmIntroString)
-			s.ChannelMessageSend(acceptorDMChannel.ID, linkToGame)
-			s.ChannelMessageSend(acceptorDMChannel.ID, MakeActionOptionList())
+			s.ChannelMessageSend(acceptorDMChannel.ID, dmIntroString + "\n\n" + linkToGame + "\n\n" + MakeActionOptionList())
 
 			return
 		case "!refuse":
@@ -572,7 +629,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 			s.ChannelMessageSendReply(m.ChannelID, refuser.Mention() + " has refused " + challenger.Mention() + "'s challenge.", m.Reference())
 			return
-
 		case "!retract":
 			if len(commandAndArgs) > 1 {
 				return
@@ -632,7 +688,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		setActionAndReportIfActionLocked := func (a Action) bool {
 			if !game.GetPlayer(m.Author.ID).SetAction(a) {
-				s.ChannelMessageSendReply(m.ChannelID, "You've already chosen an action for this round.", m.Reference())
+				s.ChannelMessageSendReply(m.ChannelID, "You've already chosen an action for this round. Message `!reconsider` to withdraw your current selection.", m.Reference())
 				return false
 			}
 			return true
@@ -653,9 +709,19 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		case "!heal":
 			action = Heal
 			break
-		}
-
-		if action == Unchosen {
+		case "!reconsider":
+			if game.GetPlayer(m.Author.ID).ClearAction() {
+				s.ChannelMessageSendReply(m.ChannelID, "You have withdrawn you selection. Select a new action.", m.Reference())
+				if m.Author.ID == game.Challenger.User.ID {
+					s.ChannelMessageSend(game.Challengee.User.ID, "Your opponent has withdrawn their selected move.")
+				} else {
+					s.ChannelMessageSend(game.Challenger.User.ID, "Your opponent has withdrawn their selected move.")
+				}
+			} else {
+				s.ChannelMessageSendReply(game.Challenger.User.ID, "Either no action has been selected for this round yet, or your action was already committed.", m.Reference())
+			}
+			return
+		default:
 			s.ChannelMessageSendReply(m.ChannelID, "Invalid command.", m.Reference())
 			return
 		}
@@ -667,9 +733,22 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		s.ChannelMessageSendReply(m.ChannelID, "You chose to " + actionStrings[action] + ".", m.Reference())
 
 		if game.Challenger.GetAction() != Unchosen && game.Challengee.GetAction() != Unchosen {
-			actionLog := game.NextStateFromActions()
+			game.Challenger.actionLocked = true
+			game.Challengee.actionLocked = true
+			actionLog, isGameOver, winner := game.NextStateFromActions()
 			s.ChannelMessageSend(game.Thread.ID, actionLog)
-			s.ChannelMessageSend(game.Thread.ID, game.ToString()) // TODO change to edit message
+
+			if isGameOver {
+				delete(Games, game.Challenger.User.ID)
+				delete(Games, game.Challengee.User.ID)
+
+				if winner != nil {
+					s.ChannelMessageSend(game.Thread.ID, "# Congratulations, " + winner.User.Mention() + "!")
+				}
+			} else {
+				s.ChannelMessageSend(game.Thread.ID, game.ToString()) // TODO change to edit message
+			}
+			
 			for _, player := range [2]Player{game.Challenger, game.Challengee} {
 				playerDMChannel, _ := s.UserChannelCreate(player.User.ID)
 				s.ChannelMessageSend(playerDMChannel.ID, "Both players have now chosen an action for this round. See the results here: <#" + game.Thread.ID + ">")
@@ -681,6 +760,32 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 					s.ChannelMessageSend(playerDMChannel.ID, "Waiting for your opponent's action for this round...")
 				} else {
 					s.ChannelMessageSend(playerDMChannel.ID, "Your opponent has chosen an action for this round.")
+				}
+			}
+		}
+	} else {
+		gameSession, sessionFound := Games[m.Author.ID]
+		if sessionFound {
+			game, isOngoing := gameSession.(*SessionStateGameOngoing)
+			if isOngoing {
+				if m.ChannelID == game.Thread.ID {
+					switch m.Content {
+					case "!forfeit":
+						var forfeiter *Player  = nil
+						var winner *Player = nil
+						if game.Challenger.User.ID == m.Author.ID {
+							forfeiter = &game.Challenger
+							winner = &game.Challengee
+						} else {
+							forfeiter = &game.Challengee
+							winner = &game.Challenger
+						}
+						s.ChannelMessageSendReply(m.ChannelID, forfeiter.User.Mention() + " has forfeited the game to " + winner.User.Mention() + ". " + winner.User.Mention() + " **wins**!", m.Reference())
+						return
+					case "!boost", "!attack", "!guard", "!heal":
+						s.ChannelMessageSendReply(m.ChannelID, "Pssst, " + m.Author.Mention() + ", your action is supposed to be a secret. DM me your final choice.", m.Reference())
+						return
+					}
 				}
 			}
 		}
