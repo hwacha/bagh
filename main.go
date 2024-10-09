@@ -109,6 +109,7 @@ func (c *SessionStateGameOver) isSessionState() {}
 
 var (
 	Token string
+	SendRules bool
 	Games = make(map[string]SessionState)
 )
 
@@ -220,7 +221,9 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 					actionLog += " with advantage over " + game.Challengee.User.Mention()
 				}
 				game.Challengee.HP -= 1 + game.Challenger.Boost
-				game.Challengee.Advantage = 0
+				if game.Challengee.HP < 0 {
+					game.Challengee.HP = 0
+				}
 				actionLog += " for "
 				if game.Challenger.Boost > 0 {
 					actionLog += " a boosted "
@@ -275,7 +278,9 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 					actionLog += " with advantage over " + game.Challenger.User.Mention()
 				}
 				game.Challenger.HP -= 1 + game.Challengee.Boost
-				game.Challenger.Advantage = 0
+				if game.Challenger.HP < 0 {
+					game.Challenger.HP = 0
+				}
 				actionLog += " for "
 				if game.Challengee.Boost > 0 {
 					actionLog += " a boosted "
@@ -339,9 +344,9 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 
 	// Heal
 	if challengerAction == Heal {
-		maxOverheal := BASE_MAX_HEALTH + game.Challenger.Boost
+		maxOverheal := BASE_MAX_HEALTH + 1 + game.Challenger.Boost
 
-		if isOver && challengeeAction == Attack && winner == &game.Challengee {
+		if challengeeAction == Attack {
 			actionLog += " before " + game.Challenger.User.Mention() + " had a chance to " + actionStrings[Heal] + "."
 			return actionLog, isOver, winner
 		}
@@ -386,9 +391,9 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 	}
 
 	if challengeeAction == Heal {
-		maxOverheal := BASE_MAX_HEALTH + game.Challengee.Boost
+		maxOverheal := BASE_MAX_HEALTH + 1 + game.Challengee.Boost
 
-		if isOver && challengerAction == Attack && winner == &game.Challenger {
+		if challengerAction == Attack {
 			actionLog += " before " + game.Challengee.User.Mention() + " had a chance to " + actionStrings[Heal] + "."
 			return actionLog, isOver, winner
 		}
@@ -470,6 +475,7 @@ func (game *SessionStateGameOngoing) ToString() string {
 
 func init() {
 	flag.StringVar(&Token, "t", "", "Bot Token")
+	flag.BoolVar(&SendRules, "rules", false, "Set if you want to send a message with the rules")
 	flag.Parse()
 }
 
@@ -480,6 +486,7 @@ func main() {
 		return
 	}
 
+	dg.AddHandler(ready)
 	dg.AddHandler(messageCreate)
 
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsGuildMembers
@@ -496,6 +503,29 @@ func main() {
 	<-sc
 
 	dg.Close()
+}
+
+func ready(s *discordgo.Session, r *discordgo.Ready) {
+	if SendRules {
+		dat1, err1 := os.ReadFile("rules-1.md")
+		if err1 != nil {
+			fmt.Println(err1)
+			return
+		}
+		dat2, err2 := os.ReadFile("rules-2.md")
+		if err2 != nil {
+			fmt.Println(err2)
+			return
+		}
+		dat3, err3 := os.ReadFile("rules-3.md")
+		if err3 != nil {
+			fmt.Println(err3)
+			return
+		}
+		s.ChannelMessageSend(PLAY_BAGH_ID, string(dat1))
+		s.ChannelMessageSend(PLAY_BAGH_ID, string(dat2))
+		s.ChannelMessageSend(PLAY_BAGH_ID, string(dat3))
+	}
 }
 
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
