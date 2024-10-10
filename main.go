@@ -173,7 +173,6 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 				actionLog += playerMention + "'s shield is **mended**! "
 			} else {
 				actionLog += playerMention + "'s shield is still broken. "
-				actionLog += strconv.Itoa(player.ShieldBreakCounter) + ". "
 			}
 		}
 
@@ -235,7 +234,7 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 					if agent.Boost > 0 {
 						attackString = "boosted " + attackString
 					}
-					actionLog += patientMention + "'s counterattack renders " + agentMention + "'s " + attackString + " impotent. "
+					delayString += patientMention + "'s counterattack renders " + agentMention + "'s " + attackString + " impotent. "
 				}
 				break
 			case Guard:
@@ -291,7 +290,12 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 				if agent.Boost > 0 {
 					actionLog += "a boosted "
 				}
-				actionLog += strconv.Itoa(damage) + " damage. "
+				actionLog += strconv.Itoa(damage) + " damage"
+				if agentHasAdvantage {
+					actionLog += " with advantage"
+				}
+
+				actionLog += ". "
 			}
 			break
 		case Guard:
@@ -330,6 +334,9 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 	// determine end game
 	isOver, winner := game.IsGameOver()
 
+	secondString := ""
+	thirdString := ""
+
 	// End Phase
 	for _, player := range players {
 		playerAction := player.GetAction()
@@ -345,7 +352,7 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 
 		if !isOver && !gainedOrRetainedAdvantage[player] && player.Advantage > 0 {
 			player.Advantage--
-			actionLog += playerMention + "'s advantage falls to " + strconv.Itoa(player.Advantage) + ". "
+			secondString += playerMention + "'s advantage falls to " + strconv.Itoa(player.Advantage) + ". "
 		}
 
 		if !isOver && player.ShieldBreakCounter > 0 {
@@ -353,21 +360,23 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 				player.ShieldBreakCounter--
 			}
 			if player.ShieldBreakCounter == 0 {
-				actionLog += playerMention + "'s shield is **mended**!"
+				thirdString += playerMention + "'s shield is **mended**! "
 			} else {
-				actionLog += "The chance of " + playerMention + "'s shield mending next turn is **1 in " + strconv.Itoa(player.ShieldBreakCounter + 1) + "**."
+				thirdString += "The chance of " + playerMention + "'s shield mending next turn is **1 in " + strconv.Itoa(player.ShieldBreakCounter + 1) + "**. "
 			}
 		}
 
 		player.UnlockAction() // TODO move this out of the scope of next state
 		player.ClearAction()
 	}
+	actionLog += secondString
+	actionLog += thirdString
 
 	if isOver {
 		if winner == nil {
-			actionLog += " Both players have lost all health in the same turn, resulting in a **draw**."
+			actionLog += "Both players have lost all health in the same turn, resulting in a **draw**."
 		} else {
-			actionLog += " " + winner.User.Mention() + " secures **victory**!"
+			actionLog += winner.User.Mention() + " secures **victory**!"
 		}
 	} else {
 		game.Round++
