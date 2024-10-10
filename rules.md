@@ -6,6 +6,8 @@ Both players choose an action each round: **Boost**, **Attack**, **Guard**, or *
 ### Boost
 **Boost**ing increases a player's **boost** by 1. Successive boosts increase the boost even higher. There is no limit on how high a player's boost can be. Boost makes every other action increasingly more effective. Once any other action is performed, all of a player's boost is expended to 0.
 
+A player can boost up to 6. Any successive boosts will preserve but not increase boost.
+
 **NOTE**: *boost is expended even if an action is unsuccessful or has no effect. The only way to keep boost is to preserve the boost streaks.*
 ### Attack
 **Attack**ing does a point of damage to the opposing player. If the opposing player's HP drops to 0, the the attack will win. If both players attack each other on the same turn, they will each damage the other. This may result in a draw if both players lose all their HP.
@@ -15,13 +17,15 @@ A boosted attack will do one more point of damage for each boost. For example, i
 **Guard**ing only has an effect if the other player attacks. They the guarding player will not take any damage that turn.
 
 The boost of the guarder and attacker are compared. If the guarder has the same boost as the attacker, or if neither player has any boost, then the guarder gains **advantage**. A guarder can only gain advantage if the attacker does not have advantage over the guarder. If the guarder has *less* boost than the attacker, there is a chance of a **shield break**.
-#### Advantage
+
+_**Advantage**_
 When both players attack each other, usually they will both deal damage. However, if one or both players have advantage, then their advantage is compared. If one player has higher advantage than the other, or if only one player has advantage, then only that player deals damage from the attack.
 
 If the guarder has more boost than the attacker, they gain a point more of advantage for every point of boost higher than the attacker's boost. For example, if the guarder has a boost of 5 and the attacker has a boost of 2, then the guarder will gain 1 advantage from a successful guard, plus 3 advantage gained from the boost difference, for a total of 4 gained advantage. If the gaurder already has advantage, then the maximum advantage between their old advantage and the new advantage becomes their advantage next turn.
 
 Unless a player had gained advantage in the current turn, advantage drops by 1 every turn until it reaches 0.
-#### Shield Breaking
+
+_**Shield Breaking**_
 If a player's shield is broken, **Guard**ing will not stop an attack from dealing damage.
 
 The chance of a shield break gets higher the larger the boost difference between attacker and guarder. Also, a shield will be more badly broken when the boost difference is higher. Every turn, after actions are chosen but before they are performed, there is a chance the shield will **mend**. That turn, a **Guard** action will successfully prevent damage from an attack. As more turns pass, there is a better chance the shield will mend.

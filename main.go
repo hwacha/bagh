@@ -143,7 +143,10 @@ func (game *SessionStateGameOngoing) IsGameOver() (bool, *Player) {
 	return true, nil
 }
 
-const BASE_MAX_HEALTH int = 3
+const (
+	BASE_MAX_HEALTH int = 3
+	MAX_BOOST int = 6
+)
 
 func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Player) {
 	gainedOrRetainedAdvantage := make(map[*Player]bool)
@@ -173,8 +176,12 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 		}
 
 		if playerAction == Boost {
-			player.Boost += 1
-			actionLog += playerMention + " " + actionStrings[Boost] + "s to " + strconv.Itoa(player.Boost) + ". "
+			if player.Boost < MAX_BOOST {
+				player.Boost += 1
+				actionLog += playerMention + " " + actionStrings[Boost] + "s to " + strconv.Itoa(player.Boost) + ". "	
+			} else {
+				actionLog += playerMention + " " + actionStrings[Boost] + "s, preserving a boost of " + strconv.Itoa(player.Boost) + ". "
+			}
 		}
 	}
 
