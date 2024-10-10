@@ -14,7 +14,7 @@ A player can boost up to 6. Any successive boosts will preserve but not increase
 
 A boosted attack will do one more point of damage for each boost. For example, if a player has a boost of 2 and attacks, they will do 3 points of damage.
 ### Guard
-**Guard**ing only has an effect if the other player attacks. They the guarding player will not take any damage that turn.
+**Guard**ing only has an effect if the other player attacks. The guarding player will not take any damage that turn.
 
 The boost of the guarder and attacker are compared. If the guarder has the same boost as the attacker, or if neither player has any boost, then the guarder gains **advantage**. A guarder can only gain advantage if the attacker does not have advantage over the guarder. If the guarder has *less* boost than the attacker, there is a chance of a **shield break**.
 
@@ -38,6 +38,6 @@ A boosted heal will heal one more point for each boost, and can overheal one mor
 
 If an attacker attacks on the same turn as a player tries to heal, they will be **interrupted** before healing.
 ## Controls
-Use `!command`s to interact with the `BAGH` Bot. To start a game type `!challenge @User` in the `play-bagh` channel, where @User is a mention of someone in the channel. If you've been challenged, you can type `!accept` to accept the challenge, or `!refuse` to refuse it. Once a challenge has been accepted, a new thread will appear. In that thread, you will see the state of the game as well as a log of each action taken. In this thread you may `!forfeit` the game to end the game. This will count as a win by default for the other player.
+Use `!command`s to interact with the `BAGH` Bot. To start a game type `!challenge @User` in the `play-bagh` channel, where @User is a mention of someone in the channel. Type `!retract` if you wish to rescind your challenge. If you've been challenged, you can type `!accept` to accept the challenge, or `!refuse` to refuse it. Once a challenge has been accepted, a new thread will appear. In that thread, you will see the state of the game as well as a log of each action taken. In this thread you may `!forfeit` the game to end the game. This will count as a win by default for the other player.
 
 To submit actions for each round, you will be prompted to check your DMs with the `BAGH` Bot. You can type either `!boost`, `!attack`, `!guard`, or `!heal` to choose an action. If you regret your choice for a round, you can type `!reconsider` to withdraw your current action. Note that this is only possible if the other player hasn't made their move yet.

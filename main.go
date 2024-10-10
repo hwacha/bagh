@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"unicode/utf8"
 	"syscall"
 	"math/rand/v2"
 
@@ -108,8 +109,8 @@ type SessionStateGameOver struct {}
 func (c *SessionStateGameOver) isSessionState() {}
 
 var (
+	CommandLine bool
 	Token string
-	SendRules bool
 	Games = make(map[string]SessionState)
 )
 
@@ -304,15 +305,13 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 			}
 			break
 		case Heal:
-			if patientAction != Attack {
-				// heal not interrupted
+			if patientAction != Attack { // heal not interrupted
 				maxOverheal := BASE_MAX_HEALTH + 1 + agent.Boost
-
 				newHP := min(agent.HP + 1 + agent.Boost, maxOverheal)
 
 				actionLog += agentMention + " " + actionStrings[Heal] + "s"
 
-				if agent.HP <= newHP { // no effect
+				if agent.HP >= newHP { // no effect
 					actionLog += " to no effect. "
 				} else {
 					diff := newHP - agent.HP
@@ -406,20 +405,105 @@ func (game *SessionStateGameOngoing) ToString() string {
 	return gameString
 }
 
+func (game *SessionStateGameOngoing) PromptActionString(s *discordgo.Session) string {
+	str := "You may now choose an action for **Round " + strconv.Itoa(game.Round) + "** in your DMs.\n"
+
+	challengerDMChannel, _ := s.UserChannelCreate(game.Challenger.User.ID)
+	challengeeDMChannel, _ := s.UserChannelCreate(game.Challengee.User.ID)
+
+	str += game.Challenger.User.Mention() + ", click here: <#" + challengerDMChannel.ID + ">\n"
+	str += game.Challengee.User.Mention() + ", click here: <#" + challengeeDMChannel.ID + ">\n"
+
+	return str
+}
+
 func init() {
 	flag.StringVar(&Token, "t", "", "Bot Token")
-	flag.BoolVar(&SendRules, "rules", false, "Set if you want to send a message with the rules")
+	flag.BoolVar(&CommandLine, "c", false, "CommandLine")
 	flag.Parse()
 }
 
+func runGameCommandLine() {
+	var p1ActionString, p2ActionString string
+	var p1Action, p2Action Action = Unchosen, Unchosen
+
+	p1 := NewPlayer(&discordgo.User{ID: "1"})
+	p2 := NewPlayer(&discordgo.User{ID: "2"})
+	game := SessionStateGameOngoing{Thread: nil, Challenger: p1, Challengee: p2, Round: 1}
+	for {
+		fmt.Println(game.ToString())
+		for {
+			fmt.Print("p1: ")
+			fmt.Scanln(&p1ActionString)
+			switch p1ActionString {
+			case "b", "boost":
+				p1Action = Boost
+				break
+			case "a", "attack":
+				p1Action = Attack
+				break
+			case "g", "guard":
+				p1Action = Guard
+				break
+			case "h", "heal":
+				p1Action = Heal
+				break
+			default:
+				fmt.Println("Invalid.")
+				continue
+			}
+			break
+		}
+
+		for {
+			fmt.Print("p2: ")
+			fmt.Scanln(&p2ActionString)
+			switch p2ActionString {
+			case "b", "boost":
+				p2Action = Boost
+				break
+			case "a", "attack":
+				p2Action = Attack
+				break
+			case "g", "guard":
+				p2Action = Guard
+				break
+			case "h", "heal":
+				p2Action = Heal
+				break
+			default:
+				fmt.Println("Invalid.")
+				continue
+			}
+			break
+		}
+
+		game.Challenger.SetAction(p1Action)
+		game.Challengee.SetAction(p2Action)
+
+		actionLog, isOver, _ := game.NextStateFromActions()
+
+		fmt.Println(actionLog)
+
+		if isOver {
+			break
+		}
+	}
+
+}
+
 func main() {
+	if CommandLine {
+		runGameCommandLine()
+		return
+	}
+
 	dg, err := discordgo.New("Bot " + Token)
 	if err != nil {
 		fmt.Println("error creating Discord session: ", err)
 		return
 	}
 
-	dg.AddHandler(ready)
 	dg.AddHandler(messageCreate)
 
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsGuildMembers
@@ -438,27 +522,42 @@ func main() {
 	dg.Close()
 }
 
-func ready(s *discordgo.Session, r *discordgo.Ready) {
-	if SendRules {
-		dat1, err1 := os.ReadFile("rules-1.md")
-		if err1 != nil {
-			fmt.Println(err1)
-			return
-		}
-		dat2, err2 := os.ReadFile("rules-2.md")
-		if err2 != nil {
-			fmt.Println(err2)
-			return
-		}
-		dat3, err3 := os.ReadFile("rules-3.md")
-		if err3 != nil {
-			fmt.Println(err3)
-			return
-		}
-		s.ChannelMessageSend(PLAY_BAGH_ID, string(dat1))
-		s.ChannelMessageSend(PLAY_BAGH_ID, string(dat2))
-		s.ChannelMessageSend(PLAY_BAGH_ID, string(dat3))
+func sendRules(s *discordgo.Session, userID string) {
+	data, err := os.ReadFile("rules.md")
+	if err != nil {
+		fmt.Println(err)
+		return
 	}
+
+	lines := strings.Split(string(data), "\n")
+	
+	dm, _ := s.UserChannelCreate(userID)
+	sendChunk := func (chunk string) {
+		s.ChannelMessageSend(dm.ID, chunk)
+	}
+
+	chunk := ""
+	numCharsInChunk := 0
+	
+	for _, line := range lines {
+		line += "\n"
+		numCharsInNextLine := utf8.RuneCountInString(line)
+		if numCharsInChunk + numCharsInNextLine > 2000 {
+			sendChunk(chunk)
+			chunk = ""
+			numCharsInChunk = 0
+		}
+		chunk += line
+		numCharsInChunk += numCharsInNextLine
+	}
+
+	if chunk != "" {
+		sendChunk(chunk)
+	}
+}
+
+func listOptions() {
+
 }
 
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -471,6 +570,13 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		command := commandAndArgs[0]
 
 		switch command {
+		case "!rules":
+			if len(commandAndArgs) != 1 {
+				return
+			}
+			sendRules(s, m.Author.ID)
+			ch, _ := s.UserChannelCreate(m.Author.ID)
+			s.ChannelMessageSendReply(m.ChannelID, "I've sent you a DM with the rules. See it here: <#" + ch.ID + ">", m.Reference())
 		case "!challenge":
 			if len(commandAndArgs) != 2 || len(m.Mentions) != 1 {
 				return
@@ -479,7 +585,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			challengee := m.Mentions[0]
 
 			if challenger.ID == challengee.ID {
-				s.ChannelMessageSendReply(m.ChannelID, challenger.Mention() + ", you can't challenge yourself!", m.Reference())
+				s.ChannelMessageSendReply(m.ChannelID, "You can't challenge yourself!", m.Reference())
 				return
 			}
 
@@ -492,7 +598,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 
 			if hasChallenger {
-				s.ChannelMessageSendReply(m.ChannelID, challenger.Mention() + ", you're already busy. Try again after your game is done.", m.Reference())
+				s.ChannelMessageSendReply(m.ChannelID, "You're already busy. Try again after your game is done.", m.Reference())
 				return
 			}
 
@@ -513,18 +619,18 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			challenge, hasAcceptor := Games[acceptor.ID]
 
 			if !hasAcceptor {
-				s.ChannelMessageSendReply(m.ChannelID, acceptor.Mention() + ", no one is challenging you.", m.Reference())
+				s.ChannelMessageSendReply(m.ChannelID, "No one is challenging you.", m.Reference())
 				return
 			}
 
 			challengeAsChallenge, isChallenge := challenge.(*SessionStateAwaitingChallengeResponse)
 			if !isChallenge {
-				s.ChannelMessageSendReply(m.ChannelID, acceptor.Mention() + ", you're in the middle of a game already.", m.Reference())
+				s.ChannelMessageSendReply(m.ChannelID, "You're in the middle of a game already.", m.Reference())
 				return
 			}
 
 			if challengeAsChallenge.Challenger.ID == acceptor.ID {
-				s.ChannelMessageSendReply(m.ChannelID, acceptor.Mention() + ", you can't accept your own challenge.", m.Reference())
+				s.ChannelMessageSendReply(m.ChannelID, "You can't accept your own challenge.", m.Reference())
 				return
 			}
 
@@ -547,7 +653,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			Games[challenger.ID] = &newGame
 			Games[acceptor.ID] = &newGame
 
-			s.ChannelMessageSend(thread.ID, newGame.ToString())
+			s.ChannelMessageSend(thread.ID, newGame.ToString() + newGame.PromptActionString(s))
 			
 			// DM each player and ask them for an action
 			const dmIntroString = "Welcome to BAGH! Your chosen action is hidden until both players have made a move. So, you can type your action for the round here."
@@ -684,6 +790,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				s.ChannelMessageSendReply(game.Challenger.User.ID, "Either no action has been selected for this round yet, or your action was already committed.", m.Reference())
 			}
 			return
+		case "!rules":
+			sendRules(s, m.Author.ID)
 		default:
 			s.ChannelMessageSendReply(m.ChannelID, "Invalid command.", m.Reference())
 			return
@@ -711,7 +819,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 					s.ChannelMessageSend(game.Thread.ID, "# Congratulations, " + winner.User.Mention() + "!")
 				}
 			} else {
-				s.ChannelMessageSend(game.Thread.ID, game.ToString()) // TODO change to edit message
+				s.ChannelMessageSend(game.Thread.ID, game.ToString() + game.PromptActionString(s))
 			}
 			
 			for _, player := range [2]Player{game.Challenger, game.Challengee} {
