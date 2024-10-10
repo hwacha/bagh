@@ -125,323 +125,248 @@ func (game *SessionStateGameOngoing) GetPlayer(userID string) *Player {
 
 // returns whether the game ended, if it was a draw,
 // and if not, who the winner and loser was
-func (game *SessionStateGameOngoing) IsGameOver() (bool, bool, *Player, *Player) {
+func (game *SessionStateGameOngoing) IsGameOver() (bool, *Player) {
 	if game.Challenger.HP > 0 && game.Challengee.HP > 0 {
-		return false, false, nil, nil
+		return false, nil
 	}
 	if game.Challenger.HP <= 0 && game.Challengee.HP <= 0 {
-		return true, true, nil, nil
+		return true, nil
 	}
 	if game.Challenger.HP > 0 {
-		return true, false, &game.Challenger, &game.Challengee
+		return true, &game.Challenger
 	}
 	if game.Challengee.HP > 0 {
-		return true, false, &game.Challengee, &game.Challenger
+		return true, &game.Challengee
 	}
 
 	// this code shouldn't be reached. If it is, end the game in a draw.
-	return true, true, nil, nil
+	return true, nil
 }
 
 const BASE_MAX_HEALTH int = 3
 
 func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Player) {
-	var challengerGainedAdvantageThisTurn bool = false
-	var challengeeGainedAdvantageThisTurn bool = false
+	gainedOrRetainedAdvantage := make(map[*Player]bool)
+	shieldJustBroke := make(map[*Player]bool)
 
-	challengerAction := game.Challenger.GetAction()
-	challengeeAction := game.Challengee.GetAction()
-
-	defer game.Challenger.ClearAction()
-	defer game.Challenger.UnlockAction()
-	
-	defer game.Challengee.ClearAction()
-	defer game.Challengee.UnlockAction()
+	players := [2]*Player{ &game.Challenger, &game.Challengee }
 
 	actionLog := ""
 
-	if game.Challenger.ShieldBreakCounter > 0 {
-		roll := rand.Float32()
-		if roll >= (float32(game.Challenger.ShieldBreakCounter) / float32(game.Challenger.ShieldBreakCounter + 1)) {
-			game.Challenger.ShieldBreakCounter = 0
-		} else {
-			game.Challenger.ShieldBreakCounter--
+	// Initial Phase
+	for _, player := range players {
+		playerAction  := player.GetAction()
+		playerMention := player.User.Mention()
+
+		if player.ShieldBreakCounter > 0 {
+			roll := rand.Float32()
+			if roll < 1.0 / float32(player.ShieldBreakCounter + 1) {
+				player.ShieldBreakCounter = 0
+			}
+
+			if player.ShieldBreakCounter == 0 {
+				actionLog += playerMention + "'s shield is **mended**! "
+			} else {
+				actionLog += playerMention + "'s shield is still broken. Its damage is at "
+				actionLog += strconv.Itoa(player.ShieldBreakCounter) + ". "
+			}
 		}
 
-		if game.Challenger.ShieldBreakCounter == 0 {
-			actionLog += game.Challenger.User.Mention() + "'s shield was mended! "
-		} else {
-			actionLog += game.Challenger.User.Mention() + "'s shield is still broken. "
+		if playerAction == Boost {
+			player.Boost += 1
+			actionLog += playerMention + " " + actionStrings[Boost] + "s to " + strconv.Itoa(player.Boost) + ". "
 		}
 	}
 
-	// Attack
-	if challengerAction == Attack {
-		if challengeeAction != Attack || game.Challenger.Advantage >= game.Challengee.Advantage {
-			actionLog += game.Challenger.User.Mention() + " " + actionStrings[Attack] + "s"
-			// Guard
-			if challengeeAction == Guard && game.Challengee.ShieldBreakCounter == 0 {
-				actionLog += ", but " + game.Challengee.User.Mention() + actionStrings[Guard] + "s and takes no damage. "
-				boostDifference := game.Challengee.Boost - game.Challenger.Boost
-				if boostDifference < 0 {
-					db := -boostDifference
+	type ActionInfo struct {
+		Agent   *Player
+		Patient *Player
+	}
 
-					shieldBreakProbability := float32(db) / float32(db + 1)
+	playerRelations := [2]ActionInfo{
+		ActionInfo{
+			Agent:   &game.Challenger,
+			Patient: &game.Challengee,
+		},
+		ActionInfo{
+			Agent:   &game.Challengee,
+			Patient: &game.Challenger,
+		},
+	}
 
-					roll := rand.Float32()
-					if roll < shieldBreakProbability {
-						game.Challengee.ShieldBreakCounter = db
-						actionLog += game.Challengee.User.Mention() + "'s shield broke!"
+	delayString := ""
+
+	// Middle Phase
+	for _, playerRelation := range playerRelations {
+		agent   := playerRelation.Agent
+		patient := playerRelation.Patient
+		
+		agentAction   :=   agent.GetAction()
+		patientAction := patient.GetAction()
+
+		agentMention   :=   agent.User.Mention()
+		patientMention := patient.User.Mention()
+
+		agentHasAdvantage   :=   agent.Advantage > patient.Advantage
+		patientHasAdvantage := patient.Advantage > agent.Advantage
+		// positive if agent has more boost
+		// negative if patient has more boost
+		// 0 if equal boost
+		boostDifferential := agent.Boost - patient.Boost
+
+		switch agentAction {
+		case Attack:
+			attackGoesThrough := true
+			switch patientAction {
+			case Attack:
+				if patientHasAdvantage { // attack has no effect
+					attackGoesThrough = false
+
+					attackString := actionStrings[Attack]
+					if agent.Boost > 0 {
+						attackString = "boosted " + attackString
 					}
+					actionLog += patientMention + "'s counterattack renders " + agentMention + "'s " + attackString + " impotent. "
 				}
-				if game.Challengee.Advantage >= game.Challenger.Advantage && boostDifference >= 0 {
-					if (game.Challengee.Advantage < boostDifference + 1) {
-						game.Challengee.Advantage = boostDifference + 1
-						actionLog += game.Challengee.User.Mention() + " gains advantage"
-						if boostDifference > 0 {
-							actionLog += " boosted by " + strconv.Itoa(boostDifference)
+				break
+			case Guard:
+				if patient.ShieldBreakCounter > 0 { // shield is broken
+					actionLog += agentMention + " attacks, and " + patientMention + " " + actionStrings[Guard] + "s, but the shield is broken. "
+				} else { // shield not broken
+					attackGoesThrough = false
+					attackString := actionStrings[Attack] + "s"
+					if agent.Boost > 0 {
+						attackString += " with a boost of " + strconv.Itoa(agent.Boost)
+					}
+					guardString := actionStrings[Guard] + "s"
+					if patient.Boost > 0 {
+						guardString += " with a boost of " + strconv.Itoa(patient.Boost)
+					}
+					actionLog += agentMention + " " + attackString + ", but " + patientMention + " " + guardString + " and prevents damage. "
+					// agent has higher boost
+					if boostDifferential > 0 {
+						// actionLog += "Because " + agentMention + " has higher boost than " + patientMention + ", " + patientMention + " gains no advantage. "
+						// roll for shield break
+						shieldBreakProbability := float32(boostDifferential) / float32(boostDifferential + 1)
+
+						roll := rand.Float32()
+						if roll < shieldBreakProbability {
+							patient.ShieldBreakCounter = boostDifferential
+							shieldJustBroke[patient] = true
+							actionLog += patientMention + "'s shield **breaks**! Its damage is at " + strconv.Itoa(patient.ShieldBreakCounter) + ". "
 						}
-					} else {
-						actionLog += game.Challengee.User.Mention() + " retains advantage"
+					} else if agentHasAdvantage { // agent has advantage
+						// actionLog += "Because " + agentMention + " has advantage over " + patientMention + ", " + patientMention + " gains no advantage. "
+					} else { // patient gains or retains advantage
+						oldAdvantage := patient.Advantage
+						patient.Advantage = max(patient.Advantage, (-1 * boostDifferential) + 1)
+
+						actionLog += patientMention
+						if oldAdvantage == patient.Advantage {
+							actionLog += " retains advantage at "
+						} else {
+							actionLog += " gains advantage up to "
+						}
+						actionLog += strconv.Itoa(patient.Advantage) + ". "
+						gainedOrRetainedAdvantage[patient] = true
+					}
+				}
+				break
+			case Heal:
+				// heal is interrupted
+				delayString += patientMention + "'s " + actionStrings[Heal] + "ing is **interrupted** by " + agentMention + "'s attack. "
+				break
+			}
+			if attackGoesThrough {
+				damage := 1 + agent.Boost
+
+				patient.HP -= damage
+				patient.HP = max(patient.HP, 0)
+
+				actionLog += agentMention + " " + actionStrings[Attack] + "s for "
+				if agent.Boost > 0 {
+					actionLog += "a boosted "
+				}
+				actionLog += strconv.Itoa(damage) + " damage. "
+			}
+			break
+		case Guard:
+			if patientAction != Attack {
+				// no effect
+				actionLog += agentMention + " " + actionStrings[Guard] + "s to no effect. "
+			}
+			break
+		case Heal:
+			if patientAction != Attack {
+				// heal not interrupted
+				maxOverheal := BASE_MAX_HEALTH + 1 + agent.Boost
+
+				newHP := min(agent.HP + 1 + agent.Boost, maxOverheal)
+
+				actionLog += agentMention + " " + actionStrings[Heal] + "s"
+
+				if agent.HP <= newHP { // no effect
+					actionLog += " to no effect. "
+				} else {
+					diff := newHP - agent.HP
+					agent.HP = newHP
+
+					actionLog += " by " + strconv.Itoa(diff) + " to "
+
+					if newHP > BASE_MAX_HEALTH {
+						actionLog += "an overheal of "
 					}
 
-					actionLog += "."
-					challengeeGainedAdvantageThisTurn = true
-				} else {
-					actionLog += "Because " + game.Challenger.User.Mention()
-					if game.Challengee.Advantage < game.Challenger.Advantage {
-						actionLog += " had advantage over "
-					} else {
-						actionLog += " was more boosted than "
-						
-					}
-					actionLog += game.Challengee.User.Mention() + ", " + game.Challengee.User.Mention() + " gains no advantage."
+					actionLog += strconv.Itoa(newHP) + ". "
 				}
-			} else {
-				if challengeeAction == Attack && game.Challenger.Advantage > game.Challengee.Advantage {
-					actionLog += " with advantage over " + game.Challengee.User.Mention()
-				}
-				game.Challengee.HP -= 1 + game.Challenger.Boost
-				if game.Challengee.HP < 0 {
-					game.Challengee.HP = 0
-				}
-				actionLog += " for "
-				if game.Challenger.Boost > 0 {
-					actionLog += " a boosted "
-				}
-				actionLog += strconv.Itoa(1 + game.Challenger.Boost) + " damage"
 			}
 		}
 	}
-	if challengeeAction == Attack {
-		if challengerAction != Attack || game.Challengee.Advantage >= game.Challenger.Advantage {
-			actionLog += game.Challengee.User.Mention() + " " + actionStrings[Attack] + "s"
-			// Guard
-			if challengerAction == Guard && game.Challenger.ShieldBreakCounter == 0 {
-				actionLog += ", but " + game.Challenger.User.Mention() + actionStrings[Guard] + "s and takes no damage. "
-				boostDifference := game.Challenger.Boost - game.Challengee.Boost
-				if boostDifference < 0 {
-					db := -boostDifference
 
-					shieldBreakProbability := float32(db) / float32(db + 1)
+	actionLog += delayString
 
-					roll := rand.Float32()
-					if roll < shieldBreakProbability {
-						game.Challenger.ShieldBreakCounter = db
-						actionLog += game.Challenger.User.Mention() + "'s shield broke! "
-					}
-				}
-				if game.Challenger.Advantage >= game.Challengee.Advantage && boostDifference >= 0 {
-					if (game.Challenger.Advantage < boostDifference + 1) {
-						game.Challenger.Advantage = boostDifference + 1
-						actionLog += game.Challenger.User.Mention() + " gains advantage"
-						if boostDifference > 0 {
-							actionLog += " boosted by " + strconv.Itoa(boostDifference)
-						}
-					} else {
-						actionLog += game.Challenger.User.Mention() + " retains advantage"
-					}
+	// determine end game
+	isOver, winner := game.IsGameOver()
 
-					actionLog += "."
-					challengerGainedAdvantageThisTurn = true
-				} else {
-					actionLog += "Because " + game.Challengee.User.Mention()
-					if game.Challenger.Advantage < game.Challengee.Advantage {
-						actionLog += " had advantage over "
-					} else {
-						actionLog += " was more boosted than "
-						
-					}
-					actionLog += game.Challenger.User.Mention() + ", " + game.Challenger.User.Mention() + " gains no advantage."
+	// End Phase
+	for _, player := range players {
+		playerAction := player.GetAction()
+		playerMention := player.User.Mention()
+		if playerAction != Boost {
+			if player.Boost > 0 {
+				player.Boost = 0
+				if !isOver {
+					actionLog += playerMention + "'s boost is expended to 0. "	
 				}
-			} else {
-				if challengerAction == Attack && game.Challengee.Advantage > game.Challenger.Advantage {
-					actionLog += " with advantage over " + game.Challenger.User.Mention()
-				}
-				game.Challenger.HP -= 1 + game.Challengee.Boost
-				if game.Challenger.HP < 0 {
-					game.Challenger.HP = 0
-				}
-				actionLog += " for "
-				if game.Challengee.Boost > 0 {
-					actionLog += " a boosted "
-				}
-				actionLog += strconv.Itoa(1 + game.Challengee.Boost) + " damage"
 			}
 		}
-	}
 
-	isOver, isDraw, winner, _ := game.IsGameOver()
-
-	incRound := func () {
-		if !isOver {
-			game.Round++	
+		if !isOver && !gainedOrRetainedAdvantage[player] && player.Advantage > 0 {
+			player.Advantage--
+			actionLog += playerMention + "'s advantage falls to " + strconv.Itoa(player.Advantage) + ". "
 		}
+
+		if !isOver && player.ShieldBreakCounter > 0 && !shieldJustBroke[player] {
+			player.ShieldBreakCounter--
+			if player.ShieldBreakCounter == 0 {
+				actionLog += playerMention + "'s shield is **mended**!"
+			}
+		}
+
+		player.UnlockAction() // TODO move this out of the scope of next state
+		player.ClearAction()
 	}
-	defer incRound()
 
 	if isOver {
-		if isDraw {
-			actionLog += game.Challenger.User.Mention() + " and " + game.Challengee.User.Mention() + " are defeated on the same turn, resulting in a **draw**."
-			return actionLog, isOver, winner
+		if winner == nil {
+			actionLog += " Both players have lost all health in the same turn, resulting in a **draw**."
 		} else {
-			actionLog += winner.User.Mention() + " secures **victory**!"
-			return actionLog, isOver, winner
-		}
-	}
-
-	performAndReportBoostExpendature := func (p *Player, al *string) {
-		if !isOver {
-			if p.Boost > 0 {
-				*al += p.User.Mention() + "'s boost is expended to 0."
-			}
-			p.Boost = 0
-		}
-	}
-
-	// Guard, no attack
-	if challengerAction == Guard && challengeeAction != Attack {
-		actionLog += game.Challenger.User.Mention() + " " + actionStrings[Guard] + "s to no effect"
-	}
-
-	if challengeeAction == Guard && challengerAction != Attack {
-		if challengerAction == Guard {
-			actionLog += " and "
-		}
-		actionLog += game.Challengee.User.Mention() + " " + actionStrings[Guard] + "s to no effect"
-	}
-
-	// Boost
-	if challengerAction == Boost {
-		game.Challenger.Boost += 1
-		if (challengeeAction == Attack || challengeeAction == Guard) {
-			actionLog += ", and then " + game.Challenger.User.Mention() + " " + actionStrings[Boost] + "s to " + strconv.Itoa(game.Challenger.Boost) + "."
-		} else {
-			actionLog += game.Challenger.User.Mention() + " " + actionStrings[Boost] + "s to " + strconv.Itoa(game.Challenger.Boost)
+			actionLog += " " + winner.User.Mention() + " secures **victory**!"
 		}
 	} else {
-		defer performAndReportBoostExpendature(&game.Challenger, &actionLog)
+		game.Round++
 	}
-
-	// Heal
-	if challengerAction == Heal {
-		maxOverheal := BASE_MAX_HEALTH + 1 + game.Challenger.Boost
-
-		if challengeeAction == Attack {
-			actionLog += " before " + game.Challenger.User.Mention() + " had a chance to " + actionStrings[Heal] + "."
-			return actionLog, isOver, winner
-		}
-
-		if challengeeAction == Attack || challengeeAction == Guard {
-			actionLog += ", and then"
-		}
-
-		newHP := game.Challenger.HP + 1 + game.Challenger.Boost
-		
-		if newHP > maxOverheal {
-			newHP = maxOverheal
-		}
-
-		actionLog += game.Challenger.User.Mention() + " " + actionStrings[Heal] + "s "
-
-		if game.Challenger.Boost > 0 {
-			actionLog += "boosted by " + strconv.Itoa(game.Challenger.Boost) + " "
-		}
-
-		if newHP == game.Challenger.HP {
-			 actionLog += "to no effect"
-		} else {
-			actionLog += ", healing by " + strconv.Itoa(newHP - game.Challenger.HP) + " to "
-			if newHP > BASE_MAX_HEALTH {
-				actionLog += "an overheal of "
-			}
-			actionLog += strconv.Itoa(newHP)
-			game.Challenger.HP = newHP
-		}
-	}
-
-	if challengeeAction == Boost {
-		game.Challengee.Boost += 1
-		if (challengerAction == Attack || challengerAction == Guard) {
-			actionLog += ", and then " + game.Challengee.User.Mention() + " " + actionStrings[Boost] + "s to " + strconv.Itoa(game.Challengee.Boost) + "."
-		} else {
-			actionLog += " and " + game.Challengee.User.Mention() + " " + actionStrings[Boost] + "s to " + strconv.Itoa(game.Challengee.Boost) + "."
-		}
-	} else {
-		defer performAndReportBoostExpendature(&game.Challengee, &actionLog)
-	}
-
-	if challengeeAction == Heal {
-		maxOverheal := BASE_MAX_HEALTH + 1 + game.Challengee.Boost
-
-		if challengerAction == Attack {
-			actionLog += " before " + game.Challengee.User.Mention() + " had a chance to " + actionStrings[Heal] + "."
-			return actionLog, isOver, winner
-		}
-
-		if challengerAction == Attack || challengerAction == Guard {
-			actionLog += ", and then"
-		} else {
-			actionLog += " and "
-		}
-
-		newHP := game.Challengee.HP + 1 + game.Challengee.Boost
-		
-		if newHP > maxOverheal {
-			newHP = maxOverheal
-		}
-
-		actionLog += game.Challengee.User.Mention() + " " + actionStrings[Heal] + "s "
-
-		if game.Challengee.Boost > 0 {
-			actionLog += "boosted by " + strconv.Itoa(game.Challengee.Boost) + " "
-		}
-
-		if newHP == game.Challengee.HP {
-			 actionLog += "to no effect"
-		} else {
-			actionLog += ", healing by " + strconv.Itoa(newHP - game.Challengee.HP) + " to "
-			if newHP > BASE_MAX_HEALTH {
-				actionLog += "an overheal of "
-			}
-			actionLog += strconv.Itoa(newHP)
-			game.Challengee.HP = newHP
-		}
-	}
-
-	// depreciate advantage
-	if !isOver {
-		if !challengerGainedAdvantageThisTurn && game.Challenger.Advantage > 0 {
-			game.Challenger.Advantage -= 1
-			actionLog += " " + game.Challenger.User.Mention() + "'s advantage falls to " + strconv.Itoa(game.Challenger.Advantage) + "."
-		}
-
-		if !challengeeGainedAdvantageThisTurn && game.Challengee.Advantage > 0 {
-			game.Challengee.Advantage -= 1
-			actionLog += " " + game.Challengee.User.Mention() + "'s advantage falls to " + strconv.Itoa(game.Challengee.Advantage) + "."
-		}
-	}
-
+	
 	return actionLog, isOver, winner
 }
 
@@ -465,7 +390,7 @@ func (game *SessionStateGameOngoing) ToString() string {
 		if player.Advantage > 0 {
 			advantage = " [Adv."
 			if player.Advantage > 1 {
-				boost += "x" + strconv.Itoa(player.Advantage)
+				advantage += "x" + strconv.Itoa(player.Advantage)
 			}
 			advantage += "]"
 		}
@@ -773,7 +698,9 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				delete(Games, game.Challenger.User.ID)
 				delete(Games, game.Challengee.User.ID)
 
-				if winner != nil {
+				if winner == nil {
+					s.ChannelMessageSend(game.Thread.ID, "# Draw.")
+				} else {
 					s.ChannelMessageSend(game.Thread.ID, "# Congratulations, " + winner.User.Mention() + "!")
 				}
 			} else {
