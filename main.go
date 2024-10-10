@@ -110,6 +110,7 @@ func (c *SessionStateGameOver) isSessionState() {}
 
 var (
 	CommandLine bool
+	Secret bool
 	Token string
 	Games = make(map[string]SessionState)
 )
@@ -171,7 +172,7 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 			if player.ShieldBreakCounter == 0 {
 				actionLog += playerMention + "'s shield is **mended**! "
 			} else {
-				actionLog += playerMention + "'s shield is still broken. Its damage is at "
+				actionLog += playerMention + "'s shield is still broken. "
 				actionLog += strconv.Itoa(player.ShieldBreakCounter) + ". "
 			}
 		}
@@ -254,15 +255,10 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 					// agent has higher boost
 					if boostDifferential > 0 {
 						// actionLog += "Because " + agentMention + " has higher boost than " + patientMention + ", " + patientMention + " gains no advantage. "
-						// roll for shield break
-						shieldBreakProbability := float32(boostDifferential) / float32(boostDifferential + 1)
 
-						roll := rand.Float32()
-						if roll < shieldBreakProbability {
-							patient.ShieldBreakCounter = boostDifferential
-							shieldJustBroke[patient] = true
-							actionLog += patientMention + "'s shield **breaks**! Its damage is at " + strconv.Itoa(patient.ShieldBreakCounter) + ". "
-						}
+						patient.ShieldBreakCounter = boostDifferential
+						shieldJustBroke[patient] = true
+						actionLog += patientMention + "'s shield **breaks**! Its damage is at " + strconv.Itoa(patient.ShieldBreakCounter) + ". "
 					} else if agentHasAdvantage { // agent has advantage
 						// actionLog += "Because " + agentMention + " has advantage over " + patientMention + ", " + patientMention + " gains no advantage. "
 					} else { // patient gains or retains advantage
@@ -352,10 +348,14 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 			actionLog += playerMention + "'s advantage falls to " + strconv.Itoa(player.Advantage) + ". "
 		}
 
-		if !isOver && player.ShieldBreakCounter > 0 && !shieldJustBroke[player] {
-			player.ShieldBreakCounter--
+		if !isOver && player.ShieldBreakCounter > 0 {
+			if !shieldJustBroke[player] {
+				player.ShieldBreakCounter--
+			}
 			if player.ShieldBreakCounter == 0 {
 				actionLog += playerMention + "'s shield is **mended**!"
+			} else {
+				actionLog += "The chance of " + playerMention + "'s shield mending next turn is **1 in " + strconv.Itoa(player.ShieldBreakCounter + 1) + "**."
 			}
 		}
 
@@ -419,7 +419,8 @@ func (game *SessionStateGameOngoing) PromptActionString(s *discordgo.Session) st
 
 func init() {
 	flag.StringVar(&Token, "t", "", "Bot Token")
-	flag.BoolVar(&CommandLine, "c", false, "CommandLine")
+	flag.BoolVar(&CommandLine, "c", false, "Play on command line")
+	flag.BoolVar(&Secret, "s", false, "Make command line action inputs secret")
 	flag.Parse()
 }
 
@@ -430,6 +431,14 @@ func runGameCommandLine() {
 	p1 := NewPlayer(&discordgo.User{ID: "1"})
 	p2 := NewPlayer(&discordgo.User{ID: "2"})
 	game := SessionStateGameOngoing{Thread: nil, Challenger: p1, Challengee: p2, Round: 1}
+
+	redact := func () {
+		fmt.Print("\033[A")
+		fmt.Print("\033[4C")
+		fmt.Print("[action]")
+		fmt.Println()
+	}
+
 	for {
 		fmt.Println(game.ToString())
 		for {
@@ -451,6 +460,9 @@ func runGameCommandLine() {
 			default:
 				fmt.Println("Invalid.")
 				continue
+			}
+			if Secret {
+				redact()
 			}
 			break
 		}
@@ -474,6 +486,9 @@ func runGameCommandLine() {
 			default:
 				fmt.Println("Invalid.")
 				continue
+			}
+			if Secret {
+				redact()
 			}
 			break
 		}
