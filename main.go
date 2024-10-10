@@ -152,10 +152,11 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 	challengerAction := game.Challenger.GetAction()
 	challengeeAction := game.Challengee.GetAction()
 
-	defer game.Challenger.UnlockAction()
 	defer game.Challenger.ClearAction()
-	defer game.Challengee.UnlockAction()
+	defer game.Challenger.UnlockAction()
+	
 	defer game.Challengee.ClearAction()
+	defer game.Challengee.UnlockAction()
 
 	actionLog := ""
 
