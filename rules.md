@@ -16,7 +16,7 @@ A boosted attack will do one more point of damage for each boost. For example, i
 ### Guard
 **Guard**ing only has an effect if the other player attacks. The guarding player will not take any damage that turn.
 
-The boost of the guarder and attacker are compared. If the guarder has the same boost as the attacker, or if neither player has any boost, then the guarder gains **advantage**. A guarder can only gain advantage if the attacker does not have advantage over the guarder. If the guarder has *less* boost than the attacker, there is a chance of a **shield break**.
+The boost of the guarder and attacker are compared. If the guarder has the same boost as the attacker, or if neither player has any boost, then the guarder gains **advantage**. A guarder can only gain advantage if the attacker does not have advantage over the guarder. If the guarder has *less* boost than the attacker, they will prevent damage but their **shield** will **break**.
 
 _**Advantage**_
 When both players attack each other, usually they will both deal damage. However, if one or both players have advantage, then their advantage is compared. If one player has higher advantage than the other, or if only one player has advantage, then only that player deals damage from the attack.
