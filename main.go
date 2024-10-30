@@ -14,7 +14,11 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-const PLAY_BAGH_ID = "1291052523439783977"
+const (
+	APPLICATION_ID = "1291027616702402632"
+	PLAY_BAGH_ID = "1291052523439783977"
+	GUILD_ID = "320038510570504192"
+)
 
 type SessionState interface {
 	isSessionState()
@@ -23,6 +27,9 @@ type SessionState interface {
 type SessionStateAwaitingChallengeResponse struct {
 	Challenger *discordgo.User
 	Challengee *discordgo.User
+
+	ChallengerMessage *discordgo.Message
+	ChallengeeMessage *discordgo.Message
 }
 func (a *SessionStateAwaitingChallengeResponse) isSessionState() {}
 
@@ -528,7 +535,9 @@ func main() {
 		return
 	}
 
+	dg.AddHandler(ready)
 	dg.AddHandler(messageCreate)
+	dg.AddHandler(handleApplicationCommand)
 
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsGuildMembers
 
@@ -580,8 +589,391 @@ func sendRules(s *discordgo.Session, userID string) {
 	}
 }
 
-func listOptions() {
+func ready(s *discordgo.Session, ready *discordgo.Ready) {
+	// const me = "186296587914313728"
+	// myDM, _ := s.UserChannelCreate(me)
 
+	s.ApplicationCommandCreate(APPLICATION_ID, GUILD_ID, &discordgo.ApplicationCommand{
+		Type: 2,
+		Name: "challenge",
+	})
+
+	s.ApplicationCommandCreate(APPLICATION_ID, GUILD_ID, &discordgo.ApplicationCommand{
+		Type:        1,
+		Name:        "action",
+		Description: "Choose an action for the current round",
+	})
+}
+
+func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCreate) {
+	ir := func (content string) {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: content,
+				Flags: discordgo.MessageFlagsEphemeral,
+			},
+		})
+	}
+
+	actionOptionsResponseData := discordgo.InteractionResponseData{
+		Content: "Choose one of the following actions.",
+		Flags: discordgo.MessageFlagsEphemeral,
+		Components: []discordgo.MessageComponent{
+			// ActionRow is a container of all buttons within the same row.
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						Label: "Boost",
+						Style: discordgo.SecondaryButton,
+						Disabled: false,
+						CustomID: "action_boost",
+						Emoji: &discordgo.ComponentEmoji{
+							Name: "⬆️",
+						},
+					},
+					discordgo.Button{
+						Label:    "Guard",
+						Style:    discordgo.SecondaryButton,
+						Disabled: false,
+						CustomID: "action_guard",
+						Emoji: &discordgo.ComponentEmoji{
+							Name: "🛡️",
+						},
+					},
+				},
+			},
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						Label:    "Attack",
+						Style:    discordgo.SecondaryButton,
+						Disabled: false,
+						CustomID: "action_attack",
+						Emoji: &discordgo.ComponentEmoji{
+							Name: "⚔️",
+						},
+					},
+					discordgo.Button{
+						Label:    "Heal",
+						Style:    discordgo.SecondaryButton,
+						Disabled: false,
+						CustomID: "action_heal",
+						Emoji: &discordgo.ComponentEmoji{
+							Name: "✨",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	user := i.User
+	if user == nil {
+		user = i.Member.User
+	}
+
+	switch i.Type {
+	case discordgo.InteractionApplicationCommand:
+		switch i.ApplicationCommandData().Name {
+		case "challenge":
+			challenger := user
+			challengee, _ := s.User(i.ApplicationCommandData().TargetID)
+
+			if challenger.ID == challengee.ID {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You can't challenge yourself!",
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+
+			_, hasChallenger := Games[challenger.ID]
+			_, hasChallengee := Games[challengee.ID]
+
+			if hasChallengee {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: challengee.Mention() + " is busy. Try challenging them later.",
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+
+			if hasChallenger {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You're already busy. Try again after your game is done.",
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "You have challenged " + challengee.Mention() + ".",
+					Flags: discordgo.MessageFlagsEphemeral,
+					Components: []discordgo.MessageComponent{
+						discordgo.ActionsRow{
+							Components: []discordgo.MessageComponent{
+								discordgo.Button{
+									Label: "Rescind",
+									Style: discordgo.SecondaryButton,
+									Disabled: false,
+									CustomID: "challenge_rescind",
+								},
+							},
+						},
+					},
+				},
+			})
+
+			acceptOrRefuseRow := func (prefix string) (discordgo.ActionsRow) {
+				return discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.Button{
+							Label: "Accept",
+							Style: discordgo.PrimaryButton,
+							Disabled: false,
+							CustomID: prefix + "_accept",
+						},
+						discordgo.Button{
+							Label:    "Refuse",
+							Style:    discordgo.SecondaryButton,
+							Disabled: false,
+							CustomID: prefix + "_refuse",
+						},
+					},
+				}
+			}
+
+			challengeeDM, _ := s.UserChannelCreate(challengee.ID)
+			challengeeMessage, _ := s.ChannelMessageSendComplex(challengeeDM.ID, &discordgo.MessageSend{
+				Content: challenger.Mention() + " has challenged you to a game of BAGH.",
+				Flags: discordgo.MessageFlagsEphemeral,
+				Components: []discordgo.MessageComponent{
+					acceptOrRefuseRow("challenge"),
+				},
+			})
+
+			challengerMessage, _ := s.InteractionResponse(i.Interaction)
+
+			newGameSession := SessionStateAwaitingChallengeResponse{
+				Challenger: challenger,
+				Challengee: challengee,
+				ChallengerMessage: challengerMessage,
+				ChallengeeMessage: challengeeMessage,
+			}
+
+			Games[challenger.ID] = &newGameSession
+			Games[challengee.ID] = &newGameSession
+
+			return
+		case "action":
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &actionOptionsResponseData,
+			})
+		}
+	case discordgo.InteractionMessageComponent:
+		buttonID := i.MessageComponentData().CustomID
+		if strings.HasPrefix(buttonID, "action_") {
+			action := Unchosen
+			switch buttonID {
+			case "action_boost":
+				action = Boost
+			case "action_attack":
+				action = Attack
+			case "action_guard":
+				action = Guard
+			case "action_heal":
+				action = Heal
+			case "action_undo":
+				action = Unchosen
+			default:
+				fmt.Println("error: action button ID not recognized.")
+				return
+			}
+
+			if action == Unchosen {
+				actionOptionsResponseDataCopy := actionOptionsResponseData
+				actionOptionsResponseDataCopy.Content = "You have undone your selection. " + actionOptionsResponseDataCopy.Content
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &actionOptionsResponseDataCopy,
+				})
+
+				return
+			}
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "You have chosen to " + actionStrings[action] + ".",
+					Flags: discordgo.MessageFlagsEphemeral,
+					Components: []discordgo.MessageComponent{
+						discordgo.ActionsRow{
+							Components: []discordgo.MessageComponent{
+								discordgo.Button{
+									Label: "Undo",
+									Style: discordgo.DangerButton,
+									Disabled: false,
+									CustomID: "action_undo",
+								},
+							},
+						},
+					},
+				},
+			})
+		} else {
+			switch buttonID {
+			case "challenge_accept":
+				acceptor := i.Interaction.User
+				challenge, hasAcceptor := Games[acceptor.ID]
+
+				if !hasAcceptor {
+					ir("No one is challenging you.")
+					return
+				}
+
+				challengeAsChallenge, isChallenge := challenge.(*SessionStateAwaitingChallengeResponse)
+				if !isChallenge {
+					ir("You're in the middle of a game already.")
+					return
+				}
+
+				if challengeAsChallenge.Challenger.ID == acceptor.ID {
+					ir("You can't accept your own challenge.")
+					return
+				}
+
+				challenger := challengeAsChallenge.Challenger
+				
+				// // start a new thread for a game
+				// thread, err := s.ThreadStart(m.ChannelID,
+				// 	challenger.Username + "'s BAGH Game Against " + acceptor.Username,
+				// 	discordgo.ChannelTypeGuildPrivateThread, 60)
+				// if err != nil {
+				// 	s.ChannelMessageSendReply(m.ChannelID, "There was a problem starting a thread.", m.Reference())
+				// 	fmt.Println(err)
+				// 	return
+				// }
+				// s.ChannelMessageSendReply(m.ChannelID, acceptor.Mention() + " has accepted " + challenger.Mention() + "'s challenge. Check for a new game thread and your DMs.", m.Reference())
+
+				// make a game object and put the thread reference there
+				newGame := SessionStateGameOngoing{Thread: nil, Challenger: NewPlayer(challenger), Challengee: NewPlayer(acceptor), Round: 1}
+
+				Games[challenger.ID] = &newGame
+				Games[acceptor.ID] = &newGame
+
+				// s.ChannelMessageSend(thread.ID, newGame.ToString() + newGame.PromptActionString(s))
+				
+				// DM each player and ask them for an action
+				// const dmIntroString = "Welcome to BAGH! Your chosen action is hidden until both players have made a move. So, you can type your action for the round here."
+				// linkToGame := "You can view the game here: <#" + thread.ID + ">"
+
+				// challengerDMChannel, _ := s.UserChannelCreate(challenger.ID)
+				
+				// s.ChannelMessageSend(challengerDMChannel.ID, dmIntroString + "\n\n" + linkToGame + "\n\n" + MakeActionOptionList())
+
+				// acceptorDMChannel, _ := s.UserChannelCreate(acceptor.ID)
+				// s.ChannelMessageSend(acceptorDMChannel.ID, dmIntroString + "\n\n" + linkToGame + "\n\n" + MakeActionOptionList())
+
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You have accepted " + challenger.Mention() + "'s challenge!",
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
+				return
+			case "challenge_refuse":
+				refuser := i.Interaction.User
+				challenge, hasRefuser := Games[refuser.ID]
+
+				if !hasRefuser {
+					fmt.Println("assertion failure: challenge_refuse called with refuser not challenged.")
+					return
+				}
+
+				challengeAsChallenge, isChallenge := challenge.(*SessionStateAwaitingChallengeResponse)
+				if !isChallenge {
+					fmt.Println("assertion failure: challenge_refuse called during ongoing game.")
+					return
+				}
+
+				challenger := challengeAsChallenge.Challenger
+
+				if challenger.ID == refuser.ID {
+					fmt.Println("assertion failure: challenge_refuse called by challenger.")
+					return
+				}
+
+				delete(Games, refuser.ID)
+				delete(Games, challenger.ID)
+
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You have refused " + challenger.Mention() + "'s challenge.",
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
+				return
+			case "challenge_rescind":
+				rescinder := i.Interaction.User
+				if rescinder == nil {
+					rescinder = i.Interaction.Member.User
+				}
+				challenge, hasRetractor := Games[rescinder.ID]
+
+				if !hasRetractor {
+					fmt.Println("assertion failure: challenge_rescind called with rescinder not issuing challenge.")
+					return
+				}
+
+				challengeAsChallenge, isChallenge := challenge.(*SessionStateAwaitingChallengeResponse)
+				if !isChallenge {
+					fmt.Println("assertion failure: challenge_rescind called during ongoing game.")
+					return
+				}
+
+				challengee := challengeAsChallenge.Challengee
+
+				if challengee.ID == rescinder.ID {
+					fmt.Println("assertion failure: challenge_rescind called by challengee.")
+					return
+				}
+
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You have rescinded your challenge to " + challengee.Mention() + ".",
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				// content := "You have rescinded your challenge to " + challengee.Mention() + "."
+				// _, err := s.ChannelMessageEditComplex(i.Interaction.ChannelID, challengeAsChallenge.ChallengerMessage, content)
+				// if err != nil {
+				// 	fmt.Println(challengeAsChallenge.ChallengerMessage.Content)
+				// 	fmt.Println(err)
+				// }
+
+				delete(Games, rescinder.ID)
+				delete(Games, challengee.ID)
+				return
+			}
+		}
+	}
 }
 
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
