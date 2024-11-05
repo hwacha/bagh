@@ -28,8 +28,8 @@ type SessionStateAwaitingChallengeResponse struct {
 	Challenger *discordgo.User
 	Challengee *discordgo.User
 
-	ChallengerMessage *discordgo.Message
-	ChallengeeMessage *discordgo.Message
+	ChallengerInteraction *discordgo.Interaction
+	ChallengeeMessage     *discordgo.Message
 }
 func (a *SessionStateAwaitingChallengeResponse) isSessionState() {}
 
@@ -688,6 +688,7 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 						Flags: discordgo.MessageFlagsEphemeral,
 					},
 				})
+
 				return
 			}
 
@@ -764,12 +765,10 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				},
 			})
 
-			challengerMessage, _ := s.InteractionResponse(i.Interaction)
-
 			newGameSession := SessionStateAwaitingChallengeResponse{
 				Challenger: challenger,
 				Challengee: challengee,
-				ChallengerMessage: challengerMessage,
+				ChallengerInteraction: i.Interaction,
 				ChallengeeMessage: challengeeMessage,
 			}
 
@@ -921,13 +920,20 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				delete(Games, challenger.ID)
 
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Type: discordgo.InteractionResponseUpdateMessage,
 					Data: &discordgo.InteractionResponseData{
 						Content: "You have refused " + challenger.Mention() + "'s challenge.",
 						Flags: discordgo.MessageFlagsEphemeral,
 					},
 				})
-				s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
+
+				challengerContent := refuser.Mention() + " has refused your challenge."
+
+				s.InteractionResponseEdit(challengeAsChallenge.ChallengerInteraction, &discordgo.WebhookEdit{
+					Content: &challengerContent,
+					Components: &[]discordgo.MessageComponent{},
+				})
+
 				return
 			case "challenge_rescind":
 				rescinder := i.Interaction.User
@@ -955,18 +961,23 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				}
 
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Type: discordgo.InteractionResponseUpdateMessage,
 					Data: &discordgo.InteractionResponseData{
 						Content: "You have rescinded your challenge to " + challengee.Mention() + ".",
 						Flags: discordgo.MessageFlagsEphemeral,
 					},
 				})
-				// content := "You have rescinded your challenge to " + challengee.Mention() + "."
-				// _, err := s.ChannelMessageEditComplex(i.Interaction.ChannelID, challengeAsChallenge.ChallengerMessage, content)
-				// if err != nil {
-				// 	fmt.Println(challengeAsChallenge.ChallengerMessage.Content)
-				// 	fmt.Println(err)
-				// }
+				challengeeContent := rescinder.Mention() + " has rescinded their challenge."
+				challengeeDMChannel, _ := s.UserChannelCreate(challengee.ID)
+				_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
+					Content: &challengeeContent,
+					Components: &[]discordgo.MessageComponent{},
+					ID: challengeAsChallenge.ChallengeeMessage.ID,
+					Channel: challengeeDMChannel.ID,
+				})
+				if err != nil {
+					fmt.Println(err)
+				}
 
 				delete(Games, rescinder.ID)
 				delete(Games, challengee.ID)
