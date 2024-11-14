@@ -16,7 +16,8 @@ import (
 
 const (
 	APPLICATION_ID = "1291027616702402632"
-	PLAY_BAGH_ID = "1291052523439783977"
+	// PLAY_BAGH_ID = "1291052523439783977" // REAL play-bagh channel
+	PLAY_BAGH_ID = "1293355159870636163"
 	GUILD_ID = "320038510570504192"
 )
 
@@ -67,6 +68,7 @@ func MakeActionOptionList () string {
 
 type Player struct {
 	User *discordgo.User
+	ChooseActionInteraction *discordgo.Interaction
 	HP int
 	ShieldBreakCounter int
 	Advantage int
@@ -105,7 +107,7 @@ func (p *Player) ClearAction() bool {
 
 type SessionStateGameOngoing struct {
 	Thread *discordgo.Channel
-	DiscordState *discordgo.State
+	LastRoundMessageID string
 	Challenger Player
 	Challengee Player
 	Round int
@@ -422,13 +424,7 @@ func (game *SessionStateGameOngoing) ToString() string {
 }
 
 func (game *SessionStateGameOngoing) PromptActionString(s *discordgo.Session) string {
-	str := "You may now choose an action for **Round " + strconv.Itoa(game.Round) + "** in your DMs.\n"
-
-	challengerDMChannel, _ := s.UserChannelCreate(game.Challenger.User.ID)
-	challengeeDMChannel, _ := s.UserChannelCreate(game.Challengee.User.ID)
-
-	str += game.Challenger.User.Mention() + ", click here: <#" + challengerDMChannel.ID + ">\n"
-	str += game.Challengee.User.Mention() + ", click here: <#" + challengeeDMChannel.ID + ">\n"
+	str := "You may now choose an action for **Round " + strconv.Itoa(game.Round) + "**."
 
 	return str
 }
@@ -446,7 +442,7 @@ func runGameCommandLine() {
 
 	p1 := NewPlayer(&discordgo.User{ID: "1"})
 	p2 := NewPlayer(&discordgo.User{ID: "2"})
-	game := SessionStateGameOngoing{Thread: nil, Challenger: p1, Challengee: p2, Round: 1}
+	game := SessionStateGameOngoing{Thread: nil, LastRoundMessageID: "", Challenger: p1, Challengee: p2, Round: 1}
 
 	redact := func () {
 		fmt.Print("\033[A")
@@ -590,18 +586,9 @@ func sendRules(s *discordgo.Session, userID string) {
 }
 
 func ready(s *discordgo.Session, ready *discordgo.Ready) {
-	// const me = "186296587914313728"
-	// myDM, _ := s.UserChannelCreate(me)
-
 	s.ApplicationCommandCreate(APPLICATION_ID, GUILD_ID, &discordgo.ApplicationCommand{
 		Type: 2,
 		Name: "challenge",
-	})
-
-	s.ApplicationCommandCreate(APPLICATION_ID, GUILD_ID, &discordgo.ApplicationCommand{
-		Type:        1,
-		Name:        "action",
-		Description: "Choose an action for the current round",
 	})
 }
 
@@ -614,6 +601,19 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				Flags: discordgo.MessageFlagsEphemeral,
 			},
 		})
+	}
+
+	actionButton := []discordgo.MessageComponent{
+		discordgo.ActionsRow{
+			Components: []discordgo.MessageComponent{
+				discordgo.Button{
+					Label: "Choose Action",
+					Style: discordgo.PrimaryButton,
+					Disabled: false,
+					CustomID: "choose_action",
+				},
+			},
+		},
 	}
 
 	actionOptionsResponseData := discordgo.InteractionResponseData{
@@ -776,14 +776,10 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 			Games[challengee.ID] = &newGameSession
 
 			return
-		case "action":
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &actionOptionsResponseData,
-			})
 		}
 	case discordgo.InteractionMessageComponent:
 		buttonID := i.MessageComponentData().CustomID
+
 		if strings.HasPrefix(buttonID, "action_") {
 			action := Unchosen
 			switch buttonID {
@@ -802,18 +798,51 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				return
 			}
 
+			presserID := i.Interaction.Member.User.ID
+			game, found := Games[presserID].(*SessionStateGameOngoing)
+
+			if !(found && game.Thread.ID == i.Interaction.ChannelID) {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You are not a player in this game of BAGH.",
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+
+			actor := game.GetPlayer(presserID)
+
 			if action == Unchosen {
+				actor.ClearAction()
+
 				actionOptionsResponseDataCopy := actionOptionsResponseData
 				actionOptionsResponseDataCopy.Content = "You have undone your selection. " + actionOptionsResponseDataCopy.Content
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Type: discordgo.InteractionResponseUpdateMessage,
 					Data: &actionOptionsResponseDataCopy,
 				})
 
 				return
 			}
+
+			// action is selected
+			if actor.GetAction() != Unchosen {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseUpdateMessage,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You've already chosen an action.",
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+
+			actor.SetAction(action)
+
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Type: discordgo.InteractionResponseUpdateMessage,
 				Data: &discordgo.InteractionResponseData{
 					Content: "You have chosen to " + actionStrings[action] + ".",
 					Flags: discordgo.MessageFlagsEphemeral,
@@ -831,6 +860,44 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 					},
 				},
 			})
+
+			actor.ChooseActionInteraction = i.Interaction
+
+			if game.Challenger.GetAction() != Unchosen && game.Challengee.GetAction() != Unchosen {
+				s.ChannelMessageEditComplex(&discordgo.MessageEdit{
+					ID: game.LastRoundMessageID,
+					Channel: game.Thread.ID,
+					Components: &[]discordgo.MessageComponent{},
+				})
+
+				game.Challenger.actionLocked = true
+				game.Challengee.actionLocked = true
+
+				for _, player := range [2]Player{game.Challenger, game.Challengee} {
+					s.InteractionResponseEdit(player.ChooseActionInteraction, &discordgo.WebhookEdit{
+						Components: &[]discordgo.MessageComponent{},
+					})
+				}
+
+				actionLog, isGameOver, winner := game.NextStateFromActions()
+				s.ChannelMessageSend(game.Thread.ID, actionLog)
+
+				if isGameOver {
+					delete(Games, game.Challenger.User.ID)
+					delete(Games, game.Challengee.User.ID)
+
+					if winner == nil {
+						s.ChannelMessageSend(game.Thread.ID, "# Draw.")
+					} else {
+						s.ChannelMessageSend(game.Thread.ID, "# Congratulations, " + winner.User.Mention() + "!")
+					}
+				} else {
+					s.ChannelMessageSendComplex(game.Thread.ID, &discordgo.MessageSend{
+						Content: game.ToString(),
+						Components: actionButton,
+					})
+				}
+			}
 		} else {
 			switch buttonID {
 			case "challenge_accept":
@@ -855,35 +922,35 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 
 				challenger := challengeAsChallenge.Challenger
 				
-				// // start a new thread for a game
-				// thread, err := s.ThreadStart(m.ChannelID,
-				// 	challenger.Username + "'s BAGH Game Against " + acceptor.Username,
-				// 	discordgo.ChannelTypeGuildPrivateThread, 60)
-				// if err != nil {
-				// 	s.ChannelMessageSendReply(m.ChannelID, "There was a problem starting a thread.", m.Reference())
-				// 	fmt.Println(err)
-				// 	return
-				// }
+				// start a new thread for a game
+				thread, err := s.ThreadStart(PLAY_BAGH_ID,
+					challenger.Username + "'s BAGH Game Against " + acceptor.Username,
+					discordgo.ChannelTypeGuildPublicThread, 60)
+				if err != nil {
+					// s.ChannelMessageSendReply(m.ChannelID, "There was a problem starting a thread.", m.Reference())
+					fmt.Println(err)
+					return
+				}
+
 				// s.ChannelMessageSendReply(m.ChannelID, acceptor.Mention() + " has accepted " + challenger.Mention() + "'s challenge. Check for a new game thread and your DMs.", m.Reference())
 
 				// make a game object and put the thread reference there
-				newGame := SessionStateGameOngoing{Thread: nil, Challenger: NewPlayer(challenger), Challengee: NewPlayer(acceptor), Round: 1}
+				newGame := SessionStateGameOngoing{Thread: thread, LastRoundMessageID: "", Challenger: NewPlayer(challenger), Challengee: NewPlayer(acceptor), Round: 1}
 
 				Games[challenger.ID] = &newGame
 				Games[acceptor.ID] = &newGame
 
-				// s.ChannelMessageSend(thread.ID, newGame.ToString() + newGame.PromptActionString(s))
-				
-				// DM each player and ask them for an action
-				// const dmIntroString = "Welcome to BAGH! Your chosen action is hidden until both players have made a move. So, you can type your action for the round here."
-				// linkToGame := "You can view the game here: <#" + thread.ID + ">"
+				msg, e := s.ChannelMessageSendComplex(thread.ID, &discordgo.MessageSend{
+					Content: newGame.ToString(),
+					Components: actionButton,
+				})
 
-				// challengerDMChannel, _ := s.UserChannelCreate(challenger.ID)
-				
-				// s.ChannelMessageSend(challengerDMChannel.ID, dmIntroString + "\n\n" + linkToGame + "\n\n" + MakeActionOptionList())
+				if e != nil {
+					fmt.Println(e)
+					return
+				}
 
-				// acceptorDMChannel, _ := s.UserChannelCreate(acceptor.ID)
-				// s.ChannelMessageSend(acceptorDMChannel.ID, dmIntroString + "\n\n" + linkToGame + "\n\n" + MakeActionOptionList())
+				newGame.LastRoundMessageID = msg.ID
 
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -920,12 +987,13 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				delete(Games, challenger.ID)
 
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseUpdateMessage,
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
 						Content: "You have refused " + challenger.Mention() + "'s challenge.",
 						Flags: discordgo.MessageFlagsEphemeral,
 					},
 				})
+				s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 
 				challengerContent := refuser.Mention() + " has refused your challenge."
 
@@ -982,6 +1050,27 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				delete(Games, rescinder.ID)
 				delete(Games, challengee.ID)
 				return
+			case "choose_action":
+				presserID := i.Interaction.Member.User.ID
+				game, found := Games[presserID].(*SessionStateGameOngoing)
+
+				if !(found && game.Thread.ID == i.Interaction.ChannelID) {
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: "You are not a player in this game of BAGH.",
+							Flags: discordgo.MessageFlagsEphemeral,
+						},
+					})
+					return
+				}
+
+				game.GetPlayer(presserID).ChooseActionInteraction = i.Interaction
+
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &actionOptionsResponseData,
+				})
 			}
 		}
 	}
