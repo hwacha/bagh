@@ -138,6 +138,11 @@ func (game *SessionStateGameOngoing) GetPlayer(userID string) *Player {
 	return nil
 }
 
+func (game *SessionStateGameOngoing) ChooseAIMove() {
+	r := rand.IntN(4)
+	game.Challengee.currentAction = Action(r)
+}
+
 // returns whether the game ended, if it was a draw,
 // and if not, who the winner and loser was
 func (game *SessionStateGameOngoing) IsGameOver() (bool, *Player) {
@@ -713,24 +718,56 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 			}
 
 			_, hasChallenger := Games[challenger.ID]
-			_, hasChallengee := Games[challengee.ID]
-
-			if hasChallengee {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &discordgo.InteractionResponseData{
-						Content: challengee.Mention() + " is busy. Try challenging them later.",
-						Flags: discordgo.MessageFlagsEphemeral,
-					},
-				})
-				return
-			}
 
 			if hasChallenger {
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
 						Content: "You're already busy. Try again after your game is done.",
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+
+			// challenge BAGH
+			if challengee.ID == APPLICATION_ID {
+				// start a new thread for a game
+				thread, _ := s.ThreadStart(PLAY_BAGH_ID,
+					challenger.Username + "'s BAGH Game Against BAGH-Bot",
+					discordgo.ChannelTypeGuildPrivateThread, 60)
+
+				newGame := SessionStateGameOngoing{Thread: thread, LastRoundMessageID: "", Challenger: NewPlayer(challenger), Challengee: NewPlayer(challengee), Round: 1}
+				newGame.ChooseAIMove()
+
+				msg, e := s.ChannelMessageSendComplex(thread.ID, &discordgo.MessageSend{
+					Content: newGame.ToString(),
+					Components: actionButton,
+				})
+				if e != nil {
+					fmt.Println(e)
+					return
+				}
+				newGame.LastRoundMessageID = msg.ID
+
+				Games[challenger.ID] = &newGame
+
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "BAGH-Bot has accepted your challenge.\nYou can play here: " + thread.Mention(),
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			
+			_, hasChallengee := Games[challengee.ID]
+			if hasChallengee {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: challengee.Mention() + " is busy. Try challenging them later.",
 						Flags: discordgo.MessageFlagsEphemeral,
 					},
 				})
@@ -872,7 +909,6 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 			if !slices.Contains(actor.ChooseActionInteractions, i.Interaction) {
 				actor.ChooseActionInteractions = append(actor.ChooseActionInteractions, i.Interaction)
 			}
-			
 
 			if game.Challenger.GetAction() != Unchosen && game.Challengee.GetAction() != Unchosen {
 
@@ -915,6 +951,10 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 					})
 
 					game.LastRoundMessageID = msg.ID
+
+					if game.Challengee.User.ID == APPLICATION_ID {
+						game.ChooseAIMove()
+					}
 				}
 			}
 		} else {
@@ -946,7 +986,6 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 					challenger.Username + "'s BAGH Game Against " + acceptor.Username,
 					discordgo.ChannelTypeGuildPrivateThread, 60)
 				if err != nil {
-					// s.ChannelMessageSendReply(m.ChannelID, "There was a problem starting a thread.", m.Reference())
 					fmt.Println(err)
 					return
 				}
