@@ -2,6 +2,7 @@ package main
 
 import (
 	"strings"
+	"slices"
 	"strconv"
 	"flag"
 	"fmt"
@@ -16,9 +17,12 @@ import (
 
 const (
 	APPLICATION_ID = "1291027616702402632"
+	
 	// PLAY_BAGH_ID = "1291052523439783977" // REAL play-bagh channel
-	PLAY_BAGH_ID = "1293355159870636163"
-	GUILD_ID = "320038510570504192"
+	// GUILD_ID = "892602942891364393" // REAL guild
+	
+	PLAY_BAGH_ID = "1293355159870636163" // TESTING channel
+	GUILD_ID = "320038510570504192" // TESTING channel
 )
 
 type SessionState interface {
@@ -68,7 +72,7 @@ func MakeActionOptionList () string {
 
 type Player struct {
 	User *discordgo.User
-	ChooseActionInteraction *discordgo.Interaction
+	ChooseActionInteractions []*discordgo.Interaction
 	HP int
 	ShieldBreakCounter int
 	Advantage int
@@ -532,7 +536,6 @@ func main() {
 	}
 
 	dg.AddHandler(ready)
-	dg.AddHandler(messageCreate)
 	dg.AddHandler(handleApplicationCommand)
 
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsGuildMembers
@@ -668,6 +671,25 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 		},
 	}
 
+	actionSelectedResponseData := func (action Action) discordgo.InteractionResponseData {
+		return discordgo.InteractionResponseData{
+			Content: "You have chosen to " + actionStrings[action] + ".",
+			Flags: discordgo.MessageFlagsEphemeral,
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.Button{
+							Label: "Undo",
+							Style: discordgo.DangerButton,
+							Disabled: false,
+							CustomID: "action_undo",
+						},
+					},
+				},
+			},
+		}
+	}
+
 	user := i.User
 	if user == nil {
 		user = i.Member.User
@@ -688,7 +710,6 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 						Flags: discordgo.MessageFlagsEphemeral,
 					},
 				})
-
 				return
 			}
 
@@ -819,51 +840,44 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 
 				actionOptionsResponseDataCopy := actionOptionsResponseData
 				actionOptionsResponseDataCopy.Content = "You have undone your selection. " + actionOptionsResponseDataCopy.Content
+				
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseUpdateMessage,
 					Data: &actionOptionsResponseDataCopy,
 				})
 
+				for _, chooseActionInteraction := range actor.ChooseActionInteractions {
+					s.InteractionResponseEdit(chooseActionInteraction, &discordgo.WebhookEdit{
+						Content: &actionOptionsResponseDataCopy.Content,
+						Components: &actionOptionsResponseDataCopy.Components,
+					})
+				}
 				return
-			}
+			} else {
+				actor.SetAction(action)
 
-			// action is selected
-			if actor.GetAction() != Unchosen {
+				asrd := actionSelectedResponseData(action)
+
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseUpdateMessage,
-					Data: &discordgo.InteractionResponseData{
-						Content: "You've already chosen an action.",
-						Flags: discordgo.MessageFlagsEphemeral,
-					},
+					Data: &asrd,
 				})
-				return
+
+				for _, chooseActionInteraction := range actor.ChooseActionInteractions {
+					s.InteractionResponseEdit(chooseActionInteraction, &discordgo.WebhookEdit{
+						Content: &asrd.Content,
+						Components: &asrd.Components,
+					})
+				}
 			}
-
-			actor.SetAction(action)
-
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseUpdateMessage,
-				Data: &discordgo.InteractionResponseData{
-					Content: "You have chosen to " + actionStrings[action] + ".",
-					Flags: discordgo.MessageFlagsEphemeral,
-					Components: []discordgo.MessageComponent{
-						discordgo.ActionsRow{
-							Components: []discordgo.MessageComponent{
-								discordgo.Button{
-									Label: "Undo",
-									Style: discordgo.DangerButton,
-									Disabled: false,
-									CustomID: "action_undo",
-								},
-							},
-						},
-					},
-				},
-			})
-
-			actor.ChooseActionInteraction = i.Interaction
+			if !slices.Contains(actor.ChooseActionInteractions, i.Interaction) {
+				actor.ChooseActionInteractions = append(actor.ChooseActionInteractions, i.Interaction)
+			}
+			
 
 			if game.Challenger.GetAction() != Unchosen && game.Challengee.GetAction() != Unchosen {
+
+				// remove the "choose action" button from the last message
 				s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 					ID: game.LastRoundMessageID,
 					Channel: game.Thread.ID,
@@ -873,10 +887,14 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				game.Challenger.actionLocked = true
 				game.Challengee.actionLocked = true
 
-				for _, player := range [2]Player{game.Challenger, game.Challengee} {
-					s.InteractionResponseEdit(player.ChooseActionInteraction, &discordgo.WebhookEdit{
-						Components: &[]discordgo.MessageComponent{},
-					})
+				// remove any buttons from outdated interactions from the previous round
+				for _, player := range [2]*Player{&game.Challenger, &game.Challengee} {
+					for _, chooseActionInteraction := range player.ChooseActionInteractions {
+						s.InteractionResponseEdit(chooseActionInteraction, &discordgo.WebhookEdit{
+							Components: &[]discordgo.MessageComponent{},
+						})
+					}
+					player.ChooseActionInteractions = nil
 				}
 
 				actionLog, isGameOver, winner := game.NextStateFromActions()
@@ -892,10 +910,12 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 						s.ChannelMessageSend(game.Thread.ID, "# Congratulations, " + winner.User.Mention() + "!")
 					}
 				} else {
-					s.ChannelMessageSendComplex(game.Thread.ID, &discordgo.MessageSend{
+					msg, _ := s.ChannelMessageSendComplex(game.Thread.ID, &discordgo.MessageSend{
 						Content: game.ToString(),
 						Components: actionButton,
 					})
+
+					game.LastRoundMessageID = msg.ID
 				}
 			}
 		} else {
@@ -925,7 +945,7 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				// start a new thread for a game
 				thread, err := s.ThreadStart(PLAY_BAGH_ID,
 					challenger.Username + "'s BAGH Game Against " + acceptor.Username,
-					discordgo.ChannelTypeGuildPublicThread, 60)
+					discordgo.ChannelTypeGuildPrivateThread, 60)
 				if err != nil {
 					// s.ChannelMessageSendReply(m.ChannelID, "There was a problem starting a thread.", m.Reference())
 					fmt.Println(err)
@@ -955,11 +975,17 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
-						Content: "You have accepted " + challenger.Mention() + "'s challenge!",
+						Content: "You have accepted " + challenger.Mention() + "'s challenge! You can play the game here: " + thread.Mention(),
 						Flags: discordgo.MessageFlagsEphemeral,
 					},
 				})
 				s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
+
+				challengerContent := acceptor.Mention() + " has accepted your challenge! You can play the game here: " + thread.Mention()
+				s.InteractionResponseEdit(challengeAsChallenge.ChallengerInteraction, &discordgo.WebhookEdit{
+					Content: &challengerContent,
+					Components: &[]discordgo.MessageComponent{},
+				})
 				return
 			case "challenge_refuse":
 				refuser := i.Interaction.User
@@ -1065,317 +1091,22 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 					return
 				}
 
-				game.GetPlayer(presserID).ChooseActionInteraction = i.Interaction
+				player := game.GetPlayer(presserID)
+
+				player.ChooseActionInteractions = append(player.ChooseActionInteractions, i.Interaction)
+
+				var responseData discordgo.InteractionResponseData
+
+				if player.GetAction() == Unchosen {
+					responseData = actionOptionsResponseData
+				} else {
+					responseData = actionSelectedResponseData(player.GetAction())
+				}
 
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
-					Data: &actionOptionsResponseData,
+					Data: &responseData,
 				})
-			}
-		}
-	}
-}
-
-func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
-
-	if m.ChannelID == PLAY_BAGH_ID {
-		commandAndArgs := strings.Split(m.Content, " ")
-		command := commandAndArgs[0]
-
-		switch command {
-		case "!rules":
-			if len(commandAndArgs) != 1 {
-				return
-			}
-			sendRules(s, m.Author.ID)
-			ch, _ := s.UserChannelCreate(m.Author.ID)
-			s.ChannelMessageSendReply(m.ChannelID, "I've sent you a DM with the rules. See it here: <#" + ch.ID + ">", m.Reference())
-		case "!challenge":
-			if len(commandAndArgs) != 2 || len(m.Mentions) != 1 {
-				return
-			}
-			challenger := m.Author
-			challengee := m.Mentions[0]
-
-			if challenger.ID == challengee.ID {
-				s.ChannelMessageSendReply(m.ChannelID, "You can't challenge yourself!", m.Reference())
-				return
-			}
-
-			_, hasChallenger := Games[challenger.ID]
-			_, hasChallengee := Games[challengee.ID]
-
-			if hasChallengee {
-				s.ChannelMessageSendReply(m.ChannelID, challengee.Mention() + " is busy. Try challenging them later.", m.Reference())
-				return
-			}
-
-			if hasChallenger {
-				s.ChannelMessageSendReply(m.ChannelID, "You're already busy. Try again after your game is done.", m.Reference())
-				return
-			}
-
-			newGameSession := SessionStateAwaitingChallengeResponse{Challenger: challenger, Challengee: challengee}
-
-			Games[challenger.ID] = &newGameSession
-			Games[challengee.ID] = &newGameSession
-			s.ChannelMessageSendReply(m.ChannelID, challengee.Mention() + ", you have been challenged to play BAGH. Type `!accept` to accept the challenge, or `!refuse` to refuse it.", m.Reference())
-
-			return
-		
-		case "!accept":
-			if len(commandAndArgs) > 1 {
-				return
-			}
-
-			acceptor := m.Author
-			challenge, hasAcceptor := Games[acceptor.ID]
-
-			if !hasAcceptor {
-				s.ChannelMessageSendReply(m.ChannelID, "No one is challenging you.", m.Reference())
-				return
-			}
-
-			challengeAsChallenge, isChallenge := challenge.(*SessionStateAwaitingChallengeResponse)
-			if !isChallenge {
-				s.ChannelMessageSendReply(m.ChannelID, "You're in the middle of a game already.", m.Reference())
-				return
-			}
-
-			if challengeAsChallenge.Challenger.ID == acceptor.ID {
-				s.ChannelMessageSendReply(m.ChannelID, "You can't accept your own challenge.", m.Reference())
-				return
-			}
-
-			challenger := challengeAsChallenge.Challenger
-			
-			// start a new thread for a game
-			thread, err := s.ThreadStart(m.ChannelID,
-				challenger.Username + "'s BAGH Game Against " + acceptor.Username,
-				discordgo.ChannelTypeGuildPrivateThread, 60)
-			if err != nil {
-				s.ChannelMessageSendReply(m.ChannelID, "There was a problem starting a thread.", m.Reference())
-				fmt.Println(err)
-				return
-			}
-			s.ChannelMessageSendReply(m.ChannelID, acceptor.Mention() + " has accepted " + challenger.Mention() + "'s challenge. Check for a new game thread and your DMs.", m.Reference())
-
-			// make a game object and put the thread reference there
-			newGame := SessionStateGameOngoing{Thread: thread, Challenger: NewPlayer(challenger), Challengee: NewPlayer(acceptor), Round: 1}
-
-			Games[challenger.ID] = &newGame
-			Games[acceptor.ID] = &newGame
-
-			s.ChannelMessageSend(thread.ID, newGame.ToString() + newGame.PromptActionString(s))
-			
-			// DM each player and ask them for an action
-			const dmIntroString = "Welcome to BAGH! Your chosen action is hidden until both players have made a move. So, you can type your action for the round here."
-			linkToGame := "You can view the game here: <#" + thread.ID + ">"
-
-			challengerDMChannel, _ := s.UserChannelCreate(challenger.ID)
-			
-			s.ChannelMessageSend(challengerDMChannel.ID, dmIntroString + "\n\n" + linkToGame + "\n\n" + MakeActionOptionList())
-
-			acceptorDMChannel, _ := s.UserChannelCreate(acceptor.ID)
-			s.ChannelMessageSend(acceptorDMChannel.ID, dmIntroString + "\n\n" + linkToGame + "\n\n" + MakeActionOptionList())
-
-			return
-		case "!refuse":
-			if len(commandAndArgs) > 1 {
-				return
-			}
-
-			refuser := m.Author
-			challenge, hasRefuser := Games[refuser.ID]
-
-			if !hasRefuser {
-				s.ChannelMessageSendReply(m.ChannelID, refuser.Mention() + ", no one is challenging you.", m.Reference())
-				return
-			}
-
-			challengeAsChallenge, isChallenge := challenge.(*SessionStateAwaitingChallengeResponse)
-			if !isChallenge {
-				s.ChannelMessageSendReply(m.ChannelID, refuser.Mention() + ", you're in the middle of a game already.", m.Reference())
-				return
-			}
-
-			challenger := challengeAsChallenge.Challenger
-
-			if challenger.ID == refuser.ID {
-				s.ChannelMessageSendReply(m.ChannelID, refuser.Mention() + ", you're the challenger. Type `!retract` to retract your challenge.", m.Reference())
-				return
-			}
-
-			delete(Games, refuser.ID)
-			delete(Games, challenger.ID)
-
-			s.ChannelMessageSendReply(m.ChannelID, refuser.Mention() + " has refused " + challenger.Mention() + "'s challenge.", m.Reference())
-			return
-		case "!retract":
-			if len(commandAndArgs) > 1 {
-				return
-			}
-
-			retractor := m.Author
-			challenge, hasRetractor := Games[retractor.ID]
-
-			if !hasRetractor {
-				s.ChannelMessageSendReply(m.ChannelID, retractor.Mention() + ", you haven't challenged anyone.", m.Reference())
-				return
-			}
-
-			challengeAsChallenge, isChallenge := challenge.(*SessionStateAwaitingChallengeResponse)
-			if !isChallenge {
-				s.ChannelMessageSendReply(m.ChannelID, retractor.Mention() + ", you're in the middle of a game already.", m.Reference())
-				return
-			}
-
-			challengee := challengeAsChallenge.Challengee
-
-			if challengee.ID == retractor.ID {
-				s.ChannelMessageSendReply(m.ChannelID, challengee.Mention() + ", you're the one who's been challenged. Type `!refuse` to refuse the challenge.", m.Reference())
-				return
-			}
-
-			delete(Games, retractor.ID)
-			delete(Games, challengee.ID)
-
-			s.ChannelMessageSendReply(m.ChannelID, retractor.Mention() + " has retracted their challenge to " + challengee.Mention() + ".", m.Reference())
-			return
-		}
-	}
-
-	speakerDMChannel, _ := s.UserChannelCreate(m.Author.ID)
-	if m.ChannelID == speakerDMChannel.ID { // we're in a DM
-		speakerGameSession, speakerIsInGameSession := Games[m.Author.ID]
-
-		game, gameIsOngoing := speakerGameSession.(*SessionStateGameOngoing)
-		_, gameIsChallenge := speakerGameSession.(*SessionStateAwaitingChallengeResponse)
-
-		reportIfActionEnteredButGameIsntOngoing := func () bool {
-			if !speakerIsInGameSession {
-				s.ChannelMessageSendReply(m.ChannelID, "You're not in a game session right now.", m.Reference())
-				return true
-			}
-
-			if !gameIsOngoing {
-				if gameIsChallenge {
-					s.ChannelMessageSendReply(m.ChannelID, "Your game hasn't started yet.", m.Reference())	
-				}
-				return true
-			}
-
-			return false
-		}
-
-		setActionAndReportIfActionLocked := func (a Action) bool {
-			if !game.GetPlayer(m.Author.ID).SetAction(a) {
-				s.ChannelMessageSendReply(m.ChannelID, "You've already chosen an action for this round. Message `!reconsider` to withdraw your current selection.", m.Reference())
-				return false
-			}
-			return true
-		}
-
-		action := Unchosen
-
-		switch m.Content {
-		case "!boost":
-			action = Boost
-			break
-		case "!attack":
-			action = Attack
-			break
-		case "!guard":
-			action = Guard
-			break
-		case "!heal":
-			action = Heal
-			break
-		case "!reconsider":
-			if game.GetPlayer(m.Author.ID).ClearAction() {
-				s.ChannelMessageSendReply(m.ChannelID, "You have withdrawn you selection. Select a new action.", m.Reference())
-				if m.Author.ID == game.Challenger.User.ID {
-					s.ChannelMessageSend(game.Challengee.User.ID, "Your opponent has withdrawn their selected move.")
-				} else {
-					s.ChannelMessageSend(game.Challenger.User.ID, "Your opponent has withdrawn their selected move.")
-				}
-			} else {
-				s.ChannelMessageSendReply(game.Challenger.User.ID, "Either no action has been selected for this round yet, or your action was already committed.", m.Reference())
-			}
-			return
-		case "!rules":
-			sendRules(s, m.Author.ID)
-		default:
-			s.ChannelMessageSendReply(m.ChannelID, "Invalid command.", m.Reference())
-			return
-		}
-
-		if reportIfActionEnteredButGameIsntOngoing() || !setActionAndReportIfActionLocked(action) {
-			return
-		}
-
-		s.ChannelMessageSendReply(m.ChannelID, "You chose to " + actionStrings[action] + ".", m.Reference())
-
-		if game.Challenger.GetAction() != Unchosen && game.Challengee.GetAction() != Unchosen {
-			game.Challenger.actionLocked = true
-			game.Challengee.actionLocked = true
-			actionLog, isGameOver, winner := game.NextStateFromActions()
-			s.ChannelMessageSend(game.Thread.ID, actionLog)
-
-			if isGameOver {
-				delete(Games, game.Challenger.User.ID)
-				delete(Games, game.Challengee.User.ID)
-
-				if winner == nil {
-					s.ChannelMessageSend(game.Thread.ID, "# Draw.")
-				} else {
-					s.ChannelMessageSend(game.Thread.ID, "# Congratulations, " + winner.User.Mention() + "!")
-				}
-			} else {
-				s.ChannelMessageSend(game.Thread.ID, game.ToString() + game.PromptActionString(s))
-			}
-			
-			for _, player := range [2]Player{game.Challenger, game.Challengee} {
-				playerDMChannel, _ := s.UserChannelCreate(player.User.ID)
-				s.ChannelMessageSend(playerDMChannel.ID, "Both players have now chosen an action for this round. See the results here: <#" + game.Thread.ID + ">")
-			}
-		} else {
-			for _, player := range [2]Player{game.Challenger, game.Challengee} {
-				playerDMChannel, _ := s.UserChannelCreate(player.User.ID)
-				if player.User.ID == m.Author.ID {
-					s.ChannelMessageSend(playerDMChannel.ID, "Waiting for your opponent's action for this round...")
-				} else {
-					s.ChannelMessageSend(playerDMChannel.ID, "Your opponent has chosen an action for this round.")
-				}
-			}
-		}
-	} else {
-		gameSession, sessionFound := Games[m.Author.ID]
-		if sessionFound {
-			game, isOngoing := gameSession.(*SessionStateGameOngoing)
-			if isOngoing {
-				if m.ChannelID == game.Thread.ID {
-					switch m.Content {
-					case "!forfeit":
-						var forfeiter *Player  = nil
-						var winner *Player = nil
-						if game.Challenger.User.ID == m.Author.ID {
-							forfeiter = &game.Challenger
-							winner = &game.Challengee
-						} else {
-							forfeiter = &game.Challengee
-							winner = &game.Challenger
-						}
-						s.ChannelMessageSendReply(m.ChannelID, forfeiter.User.Mention() + " has forfeited the game to " + winner.User.Mention() + ". " + winner.User.Mention() + " **wins**!", m.Reference())
-						return
-					case "!boost", "!attack", "!guard", "!heal":
-						s.ChannelMessageSendReply(m.ChannelID, "Pssst, " + m.Author.Mention() + ", your action is supposed to be a secret. DM me your final choice.", m.Reference())
-						return
-					}
-				}
 			}
 		}
 	}
