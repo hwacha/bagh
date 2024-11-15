@@ -183,18 +183,18 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 			}
 
 			if player.ShieldBreakCounter == 0 {
-				actionLog += playerMention + "'s shield is **mended**! "
+				actionLog += "- " + playerMention + "'s shield is **mended**!\n"
 			} else {
-				actionLog += playerMention + "'s shield is still broken. "
+				actionLog += "- " + playerMention + "'s shield is still broken.\n"
 			}
 		}
 
 		if playerAction == Boost {
 			if player.Boost < MAX_BOOST {
 				player.Boost += 1
-				actionLog += playerMention + " " + actionStrings[Boost] + "s to " + strconv.Itoa(player.Boost) + ". "	
+				actionLog += "- " + playerMention + " " + actionStrings[Boost] + "s to " + strconv.Itoa(player.Boost) + ".\n"	
 			} else {
-				actionLog += playerMention + " " + actionStrings[Boost] + "s, preserving a boost of " + strconv.Itoa(player.Boost) + ". "
+				actionLog += "- " + playerMention + " " + actionStrings[Boost] + "s, preserving a boost of " + strconv.Itoa(player.Boost) + ".\n"
 			}
 		}
 	}
@@ -247,12 +247,12 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 					if agent.Boost > 0 {
 						attackString = "boosted " + attackString
 					}
-					delayString += patientMention + "'s counterattack renders " + agentMention + "'s " + attackString + " impotent. "
+					delayString += "- " + patientMention + "'s counterattack renders " + agentMention + "'s " + attackString + " impotent.\n"
 				}
 				break
 			case Guard:
 				if patient.ShieldBreakCounter > 0 { // shield is broken
-					actionLog += agentMention + " attacks, and " + patientMention + " " + actionStrings[Guard] + "s, but the shield is broken. "
+					actionLog += "- " + agentMention + " attacks, and " + patientMention + " " + actionStrings[Guard] + "s, but the shield is broken.\n"
 				} else { // shield not broken
 					attackGoesThrough = false
 					attackString := actionStrings[Attack] + "s"
@@ -263,34 +263,34 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 					if patient.Boost > 0 {
 						guardString += " with a boost of " + strconv.Itoa(patient.Boost)
 					}
-					actionLog += agentMention + " " + attackString + ", but " + patientMention + " " + guardString + " and prevents damage. "
+					actionLog += "- " + agentMention + " " + attackString + ", but " + patientMention + " " + guardString + " and prevents damage.\n"
 					// agent has higher boost
 					if boostDifferential > 0 {
 						// actionLog += "Because " + agentMention + " has higher boost than " + patientMention + ", " + patientMention + " gains no advantage. "
 
 						patient.ShieldBreakCounter = boostDifferential
 						shieldJustBroke[patient] = true
-						actionLog += patientMention + "'s shield **breaks**! Its damage is at " + strconv.Itoa(patient.ShieldBreakCounter) + ". "
+						actionLog += "- " + patientMention + "'s shield **breaks**! Its damage is at " + strconv.Itoa(patient.ShieldBreakCounter) + ".\n"
 					} else if agentHasAdvantage { // agent has advantage
 						// actionLog += "Because " + agentMention + " has advantage over " + patientMention + ", " + patientMention + " gains no advantage. "
 					} else { // patient gains or retains advantage
 						oldAdvantage := patient.Advantage
 						patient.Advantage = max(patient.Advantage, (-1 * boostDifferential) + 1)
 
-						actionLog += patientMention
+						actionLog += "- " + patientMention
 						if oldAdvantage == patient.Advantage {
 							actionLog += " retains advantage at "
 						} else {
 							actionLog += " gains advantage up to "
 						}
-						actionLog += strconv.Itoa(patient.Advantage) + ". "
+						actionLog += strconv.Itoa(patient.Advantage) + ".\n"
 						gainedOrRetainedAdvantage[patient] = true
 					}
 				}
 				break
 			case Heal:
 				// heal is interrupted
-				delayString += patientMention + "'s " + actionStrings[Heal] + "ing is **interrupted** by " + agentMention + "'s attack. "
+				delayString += "- " + patientMention + "'s " + actionStrings[Heal] + "ing is **interrupted** by " + agentMention + "'s attack.\n"
 				break
 			}
 			if attackGoesThrough {
@@ -299,7 +299,7 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 				patient.HP -= damage
 				patient.HP = max(patient.HP, 0)
 
-				actionLog += agentMention + " " + actionStrings[Attack] + "s for "
+				actionLog += "- " + agentMention + " " + actionStrings[Attack] + "s for "
 				if agent.Boost > 0 {
 					actionLog += "a boosted "
 				}
@@ -308,13 +308,13 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 					actionLog += " with advantage"
 				}
 
-				actionLog += ". "
+				actionLog += ".\n"
 			}
 			break
 		case Guard:
 			if patientAction != Attack {
 				// no effect
-				actionLog += agentMention + " " + actionStrings[Guard] + "s to no effect. "
+				actionLog += "- " + agentMention + " " + actionStrings[Guard] + "s to no effect.\n"
 			}
 			break
 		case Heal:
@@ -322,10 +322,10 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 				maxOverheal := BASE_MAX_HEALTH + 1 + agent.Boost
 				newHP := min(agent.HP + 1 + agent.Boost, maxOverheal)
 
-				actionLog += agentMention + " " + actionStrings[Heal] + "s"
+				actionLog += "- " + agentMention + " " + actionStrings[Heal] + "s"
 
 				if agent.HP >= newHP { // no effect
-					actionLog += " to no effect. "
+					actionLog += " to no effect.\n"
 				} else {
 					diff := newHP - agent.HP
 					agent.HP = newHP
@@ -336,7 +336,7 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 						actionLog += "an overheal of "
 					}
 
-					actionLog += strconv.Itoa(newHP) + ". "
+					actionLog += strconv.Itoa(newHP) + ".\n"
 				}
 			}
 		}
@@ -358,14 +358,14 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 			if player.Boost > 0 {
 				player.Boost = 0
 				if !isOver {
-					actionLog += playerMention + "'s boost is expended to 0. "	
+					actionLog += "- " + playerMention + "'s boost is expended to 0.\n"	
 				}
 			}
 		}
 
 		if !isOver && !gainedOrRetainedAdvantage[player] && player.Advantage > 0 {
 			player.Advantage--
-			secondString += playerMention + "'s advantage falls to " + strconv.Itoa(player.Advantage) + ". "
+			secondString += "- " + playerMention + "'s advantage falls to " + strconv.Itoa(player.Advantage) + ".\n"
 		}
 
 		if !isOver && player.ShieldBreakCounter > 0 {
@@ -373,9 +373,9 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 				player.ShieldBreakCounter--
 			}
 			if player.ShieldBreakCounter == 0 {
-				thirdString += playerMention + "'s shield is **mended**! "
+				thirdString += "- " + playerMention + "'s shield is **mended**! "
 			} else {
-				thirdString += "The chance of " + playerMention + "'s shield mending next turn is **1 in " + strconv.Itoa(player.ShieldBreakCounter + 1) + "**. "
+				thirdString += "- The chance of " + playerMention + "'s shield mending next turn is **1 in " + strconv.Itoa(player.ShieldBreakCounter + 1) + "**.\n"
 			}
 		}
 
@@ -387,9 +387,9 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 
 	if isOver {
 		if winner == nil {
-			actionLog += "Both players have lost all health in the same turn, resulting in a **draw**."
+			actionLog += "- Both players have lost all health in the same turn, resulting in a **draw**."
 		} else {
-			actionLog += winner.User.Mention() + " secures **victory**!"
+			actionLog += "- " + winner.User.Mention() + " secures **victory**!"
 		}
 	} else {
 		game.Round++
@@ -401,28 +401,27 @@ func (game *SessionStateGameOngoing) NextStateFromActions() (string, bool, *Play
 func (game *SessionStateGameOngoing) ToString() string {
 	gameString := "# Round " + strconv.Itoa(game.Round) + "\n"
 	for _, player := range [2]Player{game.Challenger, game.Challengee} {
-		shield := " 🛡️"
-		if player.ShieldBreakCounter == 0 {
-			shield += "✔️ "
-		} else {
-			shield += "❌ "
+		shield := ""
+		if player.ShieldBreakCounter > 0 {
+			shield += "- 🛡️❌ (chance of mending: 1 in " + strconv.Itoa(player.ShieldBreakCounter + 1) + ")\n"
 		}
 		boost := ""
 		if player.Boost > 0 {
-			boost = " ⬆️"
+			boost = "- ⬆️"
 			if player.Boost > 1 {
 				boost += "x" + strconv.Itoa(player.Boost)
 			}
+			boost += "\n"
 		}
 		advantage := ""
 		if player.Advantage > 0 {
-			advantage = " [Adv."
+			advantage = "- [Adv."
 			if player.Advantage > 1 {
 				advantage += "x" + strconv.Itoa(player.Advantage)
 			}
-			advantage += "]"
+			advantage += "]\n"
 		}
-		gameString += "🤺 " + player.User.Mention() + ": ❤️x" + strconv.Itoa(player.HP) + shield + boost + advantage + "\n"
+		gameString += "🤺 " + player.User.Mention() + "\n- ❤️x" + strconv.Itoa(player.HP) + "\n" + shield + boost + advantage + "\n"
 	}
 	return gameString
 }
@@ -952,8 +951,6 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 					return
 				}
 
-				// s.ChannelMessageSendReply(m.ChannelID, acceptor.Mention() + " has accepted " + challenger.Mention() + "'s challenge. Check for a new game thread and your DMs.", m.Reference())
-
 				// make a game object and put the thread reference there
 				newGame := SessionStateGameOngoing{Thread: thread, LastRoundMessageID: "", Challenger: NewPlayer(challenger), Challengee: NewPlayer(acceptor), Round: 1}
 
@@ -975,13 +972,13 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
-						Content: "You have accepted " + challenger.Mention() + "'s challenge! You can play the game here: " + thread.Mention(),
+						Content: "You have accepted " + challenger.Mention() + "'s challenge!\nYou can play the game here: " + thread.Mention(),
 						Flags: discordgo.MessageFlagsEphemeral,
 					},
 				})
 				s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 
-				challengerContent := acceptor.Mention() + " has accepted your challenge! You can play the game here: " + thread.Mention()
+				challengerContent := acceptor.Mention() + " has accepted your challenge!\nYou can play the game here: " + thread.Mention()
 				s.InteractionResponseEdit(challengeAsChallenge.ChallengerInteraction, &discordgo.WebhookEdit{
 					Content: &challengerContent,
 					Components: &[]discordgo.MessageComponent{},
