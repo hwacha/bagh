@@ -17,12 +17,6 @@ import (
 
 const (
 	APPLICATION_ID = "1291027616702402632"
-	
-	// PLAY_BAGH_ID = "1291052523439783977" // REAL play-bagh channel
-	// GUILD_ID = "892602942891364393" // REAL guild
-	
-	PLAY_BAGH_ID = "1293355159870636163" // TESTING channel
-	GUILD_ID = "320038510570504192" // TESTING channel
 )
 
 type SessionState interface {
@@ -32,6 +26,8 @@ type SessionState interface {
 type SessionStateAwaitingChallengeResponse struct {
 	Challenger *discordgo.User
 	Challengee *discordgo.User
+
+	Channel *discordgo.Channel
 
 	ChallengerInteraction *discordgo.Interaction
 	ChallengeeMessage     *discordgo.Message
@@ -540,6 +536,7 @@ func main() {
 	}
 
 	dg.AddHandler(ready)
+	dg.AddHandler(handleGuildCreate)
 	dg.AddHandler(handleApplicationCommand)
 
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsGuildMembers
@@ -558,7 +555,8 @@ func main() {
 	dg.Close()
 }
 
-func sendRules(s *discordgo.Session, userID string) {
+func sendRules(s *discordgo.Session, interaction *discordgo.Interaction) {
+	const CHAR_LIMIT int = 2000
 	data, err := os.ReadFile("rules.md")
 	if err != nil {
 		fmt.Println(err)
@@ -566,20 +564,33 @@ func sendRules(s *discordgo.Session, userID string) {
 	}
 
 	lines := strings.Split(string(data), "\n")
-	
-	dm, _ := s.UserChannelCreate(userID)
-	sendChunk := func (chunk string) {
-		s.ChannelMessageSend(dm.ID, chunk)
+
+	sendChunk := func (chunk string, once *bool) {
+		if !*once {
+			s.InteractionRespond(interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: chunk,
+					Flags: discordgo.MessageFlagsEphemeral,
+				},
+			})
+		} else {
+			s.FollowupMessageCreate(interaction, false, &discordgo.WebhookParams{
+				Content: chunk,
+				Flags: discordgo.MessageFlagsEphemeral,
+			})
+		}
+		*once = true
 	}
 
 	chunk := ""
 	numCharsInChunk := 0
-	
+	once := false
 	for _, line := range lines {
 		line += "\n"
 		numCharsInNextLine := utf8.RuneCountInString(line)
-		if numCharsInChunk + numCharsInNextLine > 2000 {
-			sendChunk(chunk)
+		if numCharsInChunk + numCharsInNextLine > CHAR_LIMIT {
+			sendChunk(chunk, &once)
 			chunk = ""
 			numCharsInChunk = 0
 		}
@@ -588,15 +599,112 @@ func sendRules(s *discordgo.Session, userID string) {
 	}
 
 	if chunk != "" {
-		sendChunk(chunk)
+		sendChunk(chunk, &once)
 	}
 }
 
 func ready(s *discordgo.Session, ready *discordgo.Ready) {
-	s.ApplicationCommandCreate(APPLICATION_ID, GUILD_ID, &discordgo.ApplicationCommand{
-		Type: 2,
-		Name: "challenge",
-	})
+	for _, guild := range ready.Guilds {
+		// create a text channel for bagh if it doesn't exist
+		makeChannelAndRoleForGuild(s, guild)
+
+		// register application commands
+		s.ApplicationCommandCreate(APPLICATION_ID, guild.ID, &discordgo.ApplicationCommand{
+			Type: discordgo.ChatApplicationCommand,
+			Name: "join",
+			Description: "adds bagher role",
+		})
+
+		s.ApplicationCommandCreate(APPLICATION_ID, guild.ID, &discordgo.ApplicationCommand{
+			Type: discordgo.ChatApplicationCommand,
+			Name: "leave",
+			Description: "removes bagher role",
+		})
+
+		s.ApplicationCommandCreate(APPLICATION_ID, guild.ID, &discordgo.ApplicationCommand{
+			Type: discordgo.ChatApplicationCommand,
+			Name: "rules",
+			Description: "enumerates the rules of BAGH",
+		})
+
+		s.ApplicationCommandCreate(APPLICATION_ID, guild.ID, &discordgo.ApplicationCommand{
+			Type: discordgo.UserApplicationCommand,
+			Name: "challenge",
+		})
+	}
+}
+
+func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) {
+	// create a text channel for bagh, if it doesn't exist
+	channels, _ := s.GuildChannels(guild.ID)
+
+	var playBAGHChannel *discordgo.Channel = nil
+	for _, channel := range channels {
+		if channel.Name == "play-bagh" {
+			playBAGHChannel = channel
+			break
+		}
+	}
+
+	var bagherRole *discordgo.Role = nil
+	roles, _ := s.GuildRoles(guild.ID)
+	for _, role := range roles {
+		if role.Name == "bagher" {
+			bagherRole = role
+			break
+		}
+	}
+
+	if bagherRole == nil {
+		lightPurple := 9859481
+		role, _ := s.GuildRoleCreate(guild.ID, &discordgo.RoleParams{
+			Name: "bagher",
+			Color: &lightPurple, // light purple
+		})
+
+		bagherRole = role
+	}
+
+	s.GuildMemberRoleAdd(guild.ID, APPLICATION_ID, bagherRole.ID)
+
+	if playBAGHChannel == nil {
+		// make the channel private, but allow anyone with an opt-in role
+		s.GuildChannelCreateComplex(guild.ID, discordgo.GuildChannelCreateData{
+			Name: "play-bagh",
+			Type: discordgo.ChannelTypeGuildText,
+			PermissionOverwrites: []*discordgo.PermissionOverwrite{
+				&discordgo.PermissionOverwrite{
+					ID: guild.ID,
+					Type: discordgo.PermissionOverwriteTypeRole,
+					Deny: discordgo.PermissionViewChannel,
+				},
+				&discordgo.PermissionOverwrite{
+					ID: bagherRole.ID,
+					Type: discordgo.PermissionOverwriteTypeRole,
+					Allow: discordgo.PermissionViewChannel,
+				},
+			},
+		})
+	} else {
+		s.ChannelEdit(playBAGHChannel.ID, &discordgo.ChannelEdit{
+			PermissionOverwrites: []*discordgo.PermissionOverwrite{
+				&discordgo.PermissionOverwrite{
+					ID: guild.ID,
+					Type: discordgo.PermissionOverwriteTypeRole,
+					Deny: discordgo.PermissionViewChannel,
+				},
+				&discordgo.PermissionOverwrite{
+					ID: bagherRole.ID,
+					Type: discordgo.PermissionOverwriteTypeRole,
+					Allow: discordgo.PermissionViewChannel,
+				},
+			},
+		})		
+	}
+}
+
+func handleGuildCreate(s *discordgo.Session, gc *discordgo.GuildCreate) {
+	makeChannelAndRoleForGuild(s, gc.Guild)
 }
 
 func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -702,9 +810,60 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 	switch i.Type {
 	case discordgo.InteractionApplicationCommand:
 		switch i.ApplicationCommandData().Name {
+		case "join":
+			roles, _ := s.GuildRoles(i.GuildID)
+			bagherRole := roles[slices.IndexFunc(roles, func (role *discordgo.Role) bool {return role.Name == "bagher"})]
+			s.GuildMemberRoleAdd(i.GuildID, i.Member.User.ID, bagherRole.ID)
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "Welcome to BAGH! You can now play in this server.",
+					Flags: discordgo.MessageFlagsEphemeral,
+				},
+			})
+		case "leave":
+			roles, _ := s.GuildRoles(i.GuildID)
+			bagherRole := roles[slices.IndexFunc(roles, func (role *discordgo.Role) bool {return role.Name == "bagher"})]
+			s.GuildMemberRoleRemove(i.GuildID, i.Member.User.ID, bagherRole.ID)
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "You can no longer play BAGH in this server. Goodbye!",
+					Flags: discordgo.MessageFlagsEphemeral,
+				},
+			})
+		case "rules":
+			sendRules(s, i.Interaction)
 		case "challenge":
 			challenger := user
 			challengee, _ := s.User(i.ApplicationCommandData().TargetID)
+
+			roles, _ := s.GuildRoles(i.GuildID)
+			bagherRole := roles[slices.IndexFunc(roles, func (role *discordgo.Role) bool {return role.Name == "bagher"})]
+
+			challengerMember, _ := s.GuildMember(i.GuildID, challenger.ID)
+			if !slices.ContainsFunc(challengerMember.Roles, func (role string) bool {return bagherRole.ID == role}) {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "You are not a BAGHer! Use the `/join` command to become a BAGHer and issue challenges.",
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+
+			challengeeMember, _ := s.GuildMember(i.GuildID, challengee.ID)
+			if !slices.ContainsFunc(challengeeMember.Roles, func (role string) bool {return bagherRole.ID == role}) {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: challengee.Mention() + " is not a BAGHer! They cannot be challenged to a game of BAGH.",
+						Flags: discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
 
 			if challenger.ID == challengee.ID {
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -730,10 +889,13 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				return
 			}
 
+			channels, _ := s.GuildChannels(i.Interaction.GuildID)
+			playBAGHChannel := channels[slices.IndexFunc(channels, func (ch *discordgo.Channel) bool { return ch.Name == "play-bagh" })]
+
 			// challenge BAGH
 			if challengee.ID == APPLICATION_ID {
 				// start a new thread for a game
-				thread, _ := s.ThreadStart(PLAY_BAGH_ID,
+				thread, _ := s.ThreadStart(playBAGHChannel.ID,
 					challenger.Username + "'s BAGH Game Against BAGH-Bot",
 					discordgo.ChannelTypeGuildPrivateThread, 60)
 
@@ -825,6 +987,7 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 			newGameSession := SessionStateAwaitingChallengeResponse{
 				Challenger: challenger,
 				Challengee: challengee,
+				Channel: playBAGHChannel,
 				ChallengerInteraction: i.Interaction,
 				ChallengeeMessage: challengeeMessage,
 			}
@@ -982,7 +1145,7 @@ func handleApplicationCommand (s *discordgo.Session, i *discordgo.InteractionCre
 				challenger := challengeAsChallenge.Challenger
 				
 				// start a new thread for a game
-				thread, err := s.ThreadStart(PLAY_BAGH_ID,
+				thread, err := s.ThreadStart(challengeAsChallenge.Channel.ID,
 					challenger.Username + "'s BAGH Game Against " + acceptor.Username,
 					discordgo.ChannelTypeGuildPrivateThread, 60)
 				if err != nil {
