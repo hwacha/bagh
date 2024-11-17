@@ -12,10 +12,13 @@ const (
 	chooseAnActionPrompt                                = "Choose one of the following actions."
 	undoneSelectionChooseAnActionPrompt                 = "You have undone your selection. " + chooseAnActionPrompt
 	goodbyeMessage                                      = "You can no longer play BAGH in this server. Goodbye!"
-	nonPlayerUsesInGameCommandErrorMessage              = "You are not a player in this game of BAGH."
-	selfAcceptChallengeErrorMessage                     = "You can't accept your own challenge!"
-	selfChallengeErrorMessage                           = "You can't challenge yourself!"
-	welcomeMessage                                      = "Welcome to BAGH! You can now play in this server."
+	issueChallengePrompt                                = "Issue someone a challenge by right-clicking on their name in the server, going to Apps," +
+		" and clicking the `challenge` option with my icon next to it."
+	nonPlayerUsesInGameCommandErrorMessage = "You are not a player in this game of BAGH."
+	playerNotBAGHerJoinPrompt              = "Use the `/join` command to view the BAGH channel and start playing BAGH."
+	selfAcceptChallengeErrorMessage        = "You can't accept your own challenge!"
+	selfChallengeErrorMessage              = "You can't challenge yourself!"
+	welcomeMessage                         = "Welcome to BAGH! You can now play in this server."
 )
 
 func actionSelectedConfirmation(action Action) string {
@@ -31,7 +34,7 @@ func challengeAcceptNotificationForChallenger(challengee *discordgo.User, thread
 }
 
 func challengeeNotBAGHerError(challengee *discordgo.User) string {
-	return challengee.Mention() + " is not a BAGHer! They cannot be challenged to a game of BAGH."
+	return challengee.Mention() + " is not a BAGHer! They cannot be challenged to a game of BAGH. Check for a `bagher` role."
 }
 
 func challengeIssuedConfirmationToChallenger(challengee *discordgo.User) string {
@@ -69,4 +72,13 @@ func gameThreadTitle(challenger *discordgo.Member, challengee *discordgo.Member)
 	}
 
 	return challenger.DisplayName() + "'s BAGH Game Against " + challengeeNick
+}
+
+func playerAcceptOrRefuseChallengePrompt(challenger *discordgo.User, dm *discordgo.Channel, message *discordgo.Message) string {
+	return challenger.Mention() + "'s challenge is awaiting your response.\nAccept or refuse here: " +
+		"https://discord.com/channels/@me/" + dm.ID + "/" + message.ID
+}
+
+func playerInGameRedirectToGameThread(thread *discordgo.Channel) string {
+	return "You're in the middle of a BAGH game. Join back in here: " + thread.Mention()
 }

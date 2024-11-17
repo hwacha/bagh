@@ -30,7 +30,10 @@ func bagherRoleInGuild(s *discordgo.Session, i *discordgo.Interaction) *discordg
 }
 
 func userHasBAGHerRoleInGuild(s *discordgo.Session, i *discordgo.Interaction, user *discordgo.User) bool {
-	member, _ := s.GuildMember(i.GuildID, user.ID)
+	member, err := s.GuildMember(i.GuildID, user.ID)
+	if err != nil {
+		panic(err)
+	}
 	return slices.ContainsFunc(member.Roles, func(role string) bool {
 		return bagherRoleInGuild(s, i).ID == role
 	})
@@ -276,6 +279,56 @@ type ApplicationCommandAndHandler struct {
 
 var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHandler {
 	var cahs = [...]ApplicationCommandAndHandler{
+		{
+			Command: discordgo.ApplicationCommand{
+				Type:        discordgo.ChatApplicationCommand,
+				Name:        "bagh",
+				Description: "brings up any salient interaction for a user.",
+			},
+			Handler: func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+				// case 1: member is not a BAGHer.
+				if !userHasBAGHerRoleInGuild(s, i.Interaction, i.Interaction.Member.User) {
+					ir(s, i, challengerNotBAGHerErrorMessage)
+					return
+				}
+
+				session, memberHasSession := Games[i.Interaction.Member.User.ID]
+
+				// case 2: member is not in a session
+				if !memberHasSession {
+					ir(s, i, issueChallengePrompt)
+					return
+				}
+
+				challenge, sessionIsChallenge := session.(*AwaitingChallengeResponse)
+				if sessionIsChallenge {
+					// case 3: member has issued someone a challenge
+					if i.Interaction.Member.User.ID == challenge.Challenger.ID {
+						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+							Type: discordgo.InteractionResponseChannelMessageWithSource,
+							Data: &discordgo.InteractionResponseData{
+								Content:    challengeIssuedConfirmationToChallenger(challenge.Challengee),
+								Flags:      discordgo.MessageFlagsEphemeral,
+								Components: rescindButton,
+							},
+						})
+					} else {
+						// case 4: member has been issued a challenge by someone else
+						challengeeDMChannel, _ := s.UserChannelCreate(challenge.Challengee.ID)
+						ir(s, i, playerAcceptOrRefuseChallengePrompt(challenge.Challenger, challengeeDMChannel, challenge.ChallengeeMessage))
+					}
+				} else {
+					game, _ := session.(*GameOngoing)
+					// case 5: member is in-game, in the thread
+					if i.Interaction.ChannelID == game.Thread.ID {
+						messageComponentHandlers["choose_action"](s, i)
+					} else {
+						// case 6: member is in-game, outside of the thread
+						ir(s, i, playerInGameRedirectToGameThread(game.Thread))
+					}
+				}
+			},
+		},
 		{
 			Command: discordgo.ApplicationCommand{
 				Type:        discordgo.ChatApplicationCommand,
