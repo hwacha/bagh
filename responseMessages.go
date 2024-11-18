@@ -19,10 +19,12 @@ const (
 	goodbyeMessage                                      = "You can no longer play BAGH in this server. Goodbye!"
 	issueChallengePrompt                                = "Issue someone a challenge by right-clicking on their name in the server, going to Apps," +
 		" and clicking the `challenge` option with my icon next to it."
+	leaveWhenInSessionErrorMessage         = "You can't leave BAGH while you're in a game session. `refuse`, `rescind`, or `forfeit` to enable leaving."
 	nonPlayerUsesInGameCommandErrorMessage = "You are not a player in this game of BAGH."
 	playBAGHChannelMissingErrorMessage     = "The `play-bagh` channel is missing. Ask an admin to run `/restore` to bring it back."
 	playerNotBAGHerJoinPrompt              = "Use the `/join` command to view the BAGH channel and start playing BAGH."
 	refuseOutdatedChallengeErrorMessage    = "You've tried to refuse an outdated challenge."
+	resendLastRoundNotification            = "The message for the current round got deleted. It will now be re-sent."
 	rescindOutdatedChallengeErrorMessage   = "You've tried to rescind an outdated challenge."
 	restoreConfirmation                    = "`play-bagh` channel, `bagher` role, and all ongoing game threads have been restored."
 	roleMissingErrorMessage                = "The `bagher` role is missing from the server. Ask an admin to run `/restore` to bring it back."
