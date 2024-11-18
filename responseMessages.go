@@ -12,12 +12,16 @@ const (
 	challengerNotBAGHerErrorMessage                     = "You are not a BAGHer! Use the `/join` command to become a BAGHer and issue challenges."
 	chooseAnActionPrompt                                = "Choose one of the following actions."
 	undoneSelectionChooseAnActionPrompt                 = "You have undone your selection. " + chooseAnActionPrompt
+	gameThreadMissingErrorMessage                       = "You're in the middle of a game, but the thread has been deleted. Ask an admin to run `/restore` to bring it back."
 	goodbyeMessage                                      = "You can no longer play BAGH in this server. Goodbye!"
 	issueChallengePrompt                                = "Issue someone a challenge by right-clicking on their name in the server, going to Apps," +
 		" and clicking the `challenge` option with my icon next to it."
 	nonPlayerUsesInGameCommandErrorMessage = "You are not a player in this game of BAGH."
+	playBAGHChannelMissingErrorMessage     = "The `play-bagh` channel is missing. Ask an admin to run `/restore` to bring it back."
 	playerNotBAGHerJoinPrompt              = "Use the `/join` command to view the BAGH channel and start playing BAGH."
 	refuseOutdatedChallengeErrorMessage    = "You've tried to refuse an outdated challenge."
+	rescindOutdatedChallengeErrorMessage   = "You've tried to rescind an outdated challenge."
+	restoreConfirmation                    = "`play-bagh` channel, `bagher` role, and all ongoing game threads have been restored."
 	selfAcceptChallengeErrorMessage        = "You can't accept your own challenge!"
 	selfChallengeErrorMessage              = "You can't challenge yourself!"
 	welcomeMessage                         = "Welcome to BAGH! You can now play in this server."
@@ -82,5 +86,5 @@ func playerAcceptOrRefuseChallengePrompt(challenger *discordgo.User, dm *discord
 }
 
 func playerInGameRedirectToGameThread(thread *discordgo.Channel) string {
-	return "You're in the middle of a BAGH game. Join back in here: " + thread.Mention()
+	return "You're in the middle of a BAGH game.\nJoin back in here: " + thread.Mention()
 }

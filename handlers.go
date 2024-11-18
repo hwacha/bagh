@@ -155,7 +155,7 @@ func ir(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
 	})
 }
 
-func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) {
+func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) *discordgo.Channel {
 	// create a text channel for bagh, if it doesn't exist
 	channels, _ := s.GuildChannels(guild.ID)
 
@@ -190,7 +190,7 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) {
 
 	if playBAGHChannel == nil {
 		// make the channel private, but allow anyone with an opt-in role
-		s.GuildChannelCreateComplex(guild.ID, discordgo.GuildChannelCreateData{
+		ch, _ := s.GuildChannelCreateComplex(guild.ID, discordgo.GuildChannelCreateData{
 			Name: "play-bagh",
 			Type: discordgo.ChannelTypeGuildText,
 			PermissionOverwrites: []*discordgo.PermissionOverwrite{
@@ -206,6 +206,7 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) {
 				},
 			},
 		})
+		return ch
 	} else {
 		s.ChannelEdit(playBAGHChannel.ID, &discordgo.ChannelEdit{
 			PermissionOverwrites: []*discordgo.PermissionOverwrite{
@@ -221,6 +222,7 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) {
 				},
 			},
 		})
+		return playBAGHChannel
 	}
 }
 
@@ -278,6 +280,7 @@ type ApplicationCommandAndHandler struct {
 }
 
 var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHandler {
+	manageServerPermission := int64(discordgo.PermissionManageServer)
 	var cahs = [...]ApplicationCommandAndHandler{
 		{
 			Command: discordgo.ApplicationCommand{
@@ -328,7 +331,12 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 					if i.Interaction.ChannelID == game.Thread.ID {
 						messageComponentHandlers["choose_action"](s, i)
 					} else {
-						// case 6: member is in-game, outside of the thread
+						threadToConfirm, _ := s.Channel(game.Thread.ID)
+						if threadToConfirm == nil {
+							// case 6: member is in-game, but the thread no longer exists
+							ir(s, i, gameThreadMissingErrorMessage)
+						}
+						// case 7: member is in-game and the thread exists, but they are outside of the thread
 						ir(s, i, playerInGameRedirectToGameThread(game.Thread))
 					}
 				}
@@ -354,6 +362,53 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 			Handler: func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				s.GuildMemberRoleRemove(i.GuildID, i.Member.User.ID, bagherRoleInGuild(s, i.Interaction).ID)
 				ir(s, i, goodbyeMessage)
+			},
+		},
+		{
+			Command: discordgo.ApplicationCommand{
+				Type:                     discordgo.ChatApplicationCommand,
+				Name:                     "restore",
+				Description:              "restores the `play-bagh` channel, `bagher` role, and any ongoing game threads",
+				DefaultMemberPermissions: &manageServerPermission,
+			},
+			Handler: func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+				guild, _ := s.Guild(i.GuildID)
+				ch := makeChannelAndRoleForGuild(s, guild)
+
+				for _, session := range Games {
+					challenge, isChallenge := session.(*AwaitingChallengeResponse)
+					if isChallenge {
+						challenge.Channel = ch
+					} else {
+						game, _ := session.(*GameOngoing)
+
+						threadToConfirm, _ := s.Channel(game.Thread.ID)
+
+						if threadToConfirm != nil {
+							continue
+						}
+
+						challengerMember, _ := s.GuildMember(guild.ID, game.Challenger.User.ID)
+						var challengeeMember *discordgo.Member = nil
+						if game.Challengee.User.ID != APPLICATION_ID {
+							challengeeMember, _ = s.GuildMember(guild.ID, game.Challengee.User.ID)
+						}
+
+						newThread, _ := s.ThreadStart(ch.ID,
+							gameThreadTitle(challengerMember, challengeeMember),
+							discordgo.ChannelTypeGuildPrivateThread, 60)
+
+						game.Thread = newThread
+						msg, _ := s.ChannelMessageSendComplex(newThread.ID, &discordgo.MessageSend{
+							Content:    game.ToString(),
+							Components: chooseActionButton,
+						})
+
+						game.LastRoundMessageID = msg.ID
+					}
+
+				}
+				ir(s, i, restoreConfirmation)
 			},
 		},
 		{
@@ -403,6 +458,12 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 				// challenge BAGH
 				if challengee.ID == APPLICATION_ID {
 					// start a new thread for a game
+					playBAGHChannel := findBAGHChannelInGuild(s, i.Interaction)
+					if playBAGHChannel == nil {
+						ir(s, i, playBAGHChannelMissingErrorMessage)
+						return
+					}
+
 					challengerMember, _ := s.GuildMember(i.GuildID, challenger.ID)
 					thread, _ := s.ThreadStart(playBAGHChannel.ID, gameThreadTitle(challengerMember, nil),
 						discordgo.ChannelTypeGuildPrivateThread, 60)
@@ -512,7 +573,13 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 		challengerMember, _ := s.GuildMember(challengeAsChallenge.ChallengerInteractions[0].GuildID, challenger.ID)
 		challengeeMember, _ := s.GuildMember(challengeAsChallenge.ChallengerInteractions[0].GuildID, acceptor.ID)
 
-		thread, _ := s.ThreadStart(challengeAsChallenge.Channel.ID,
+		playBAGHChannel, _ := s.Channel(challengeAsChallenge.Channel.ID)
+		if playBAGHChannel == nil {
+			ir(s, i, playBAGHChannelMissingErrorMessage)
+			return
+		}
+
+		thread, _ := s.ThreadStart(playBAGHChannel.ID,
 			gameThreadTitle(challengerMember, challengeeMember),
 			discordgo.ChannelTypeGuildPrivateThread, 60)
 
@@ -558,7 +625,7 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 
 		challengeAsChallenge, isChallenge := challenge.(*AwaitingChallengeResponse)
 		if !isChallenge {
-			ir(s, i, challengeRefusedWhileInGameErrorMessage)
+			ir(s, i, refuseOutdatedChallengeErrorMessage)
 			s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 			return
 		}
@@ -596,23 +663,41 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 		if rescinder == nil {
 			rescinder = i.Interaction.Member.User
 		}
-		challenge, hasRetractor := Games[rescinder.ID]
+		challenge, hasRescinder := Games[rescinder.ID]
 
-		if !hasRetractor {
-			fmt.Println("assertion failure: challenge_rescind called with rescinder not issuing challenge.")
+		if !hasRescinder {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseUpdateMessage,
+				Data: &discordgo.InteractionResponseData{
+					Content: rescindOutdatedChallengeErrorMessage,
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
 			return
 		}
 
 		challengeAsChallenge, isChallenge := challenge.(*AwaitingChallengeResponse)
 		if !isChallenge {
-			fmt.Println("assertion failure: challenge_rescind called during ongoing game.")
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseUpdateMessage,
+				Data: &discordgo.InteractionResponseData{
+					Content: rescindOutdatedChallengeErrorMessage,
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
 			return
 		}
 
 		challengee := challengeAsChallenge.Challengee
 
 		if challengee.ID == rescinder.ID {
-			fmt.Println("assertion failure: challenge_rescind called by challengee.")
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseUpdateMessage,
+				Data: &discordgo.InteractionResponseData{
+					Content: rescindOutdatedChallengeErrorMessage,
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
 			return
 		}
 
