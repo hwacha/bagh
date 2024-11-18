@@ -5,11 +5,14 @@ import (
 )
 
 const (
+	acceptorNotBAGHerErrorMessage                       = "You are not a `bagher`! Use the `/join` command to become a `bagher` and accept this challenge."
 	acceptOutdatedChallengeErrorMessage                 = "You've tried to accept an outdated challenge."
+	alreadyBAGHerErrorMessage                           = "You're already a `bagher`!"
+	alreadyNotBAGHerErrorMessage                        = "You're not a `bagher` already!"
 	challengeAcceptedWhileInGameErrorMessage            = "You're in the middle of a game already."
 	challengeRefusedWhileInGameErrorMessage             = "You're in the middle of a game already."
 	challengerIssuesChallengeWhileInSessionErrorMessage = "You're already busy. Try again after your game is done."
-	challengerNotBAGHerErrorMessage                     = "You are not a BAGHer! Use the `/join` command to become a BAGHer and issue challenges."
+	challengerNotBAGHerErrorMessage                     = "You are not a `bagher`! Use the `/join` command to become a `bagher` and issue challenges."
 	chooseAnActionPrompt                                = "Choose one of the following actions."
 	undoneSelectionChooseAnActionPrompt                 = "You have undone your selection. " + chooseAnActionPrompt
 	gameThreadMissingErrorMessage                       = "You're in the middle of a game, but the thread has been deleted. Ask an admin to run `/restore` to bring it back."
@@ -22,6 +25,7 @@ const (
 	refuseOutdatedChallengeErrorMessage    = "You've tried to refuse an outdated challenge."
 	rescindOutdatedChallengeErrorMessage   = "You've tried to rescind an outdated challenge."
 	restoreConfirmation                    = "`play-bagh` channel, `bagher` role, and all ongoing game threads have been restored."
+	roleMissingErrorMessage                = "The `bagher` role is missing from the server. Ask an admin to run `/restore` to bring it back."
 	selfAcceptChallengeErrorMessage        = "You can't accept your own challenge!"
 	selfChallengeErrorMessage              = "You can't challenge yourself!"
 	welcomeMessage                         = "Welcome to BAGH! You can now play in this server."

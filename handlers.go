@@ -26,22 +26,32 @@ var actionSelectedResponseData = func(action Action) discordgo.InteractionRespon
 
 func bagherRoleInGuild(s *discordgo.Session, i *discordgo.Interaction) *discordgo.Role {
 	roles, _ := s.GuildRoles(i.GuildID)
-	return roles[slices.IndexFunc(roles, func(role *discordgo.Role) bool { return role.Name == "bagher" })]
+	roleIndex := slices.IndexFunc(roles, func(role *discordgo.Role) bool {
+		return role.Name == "bagher"
+	})
+	if roleIndex == -1 {
+		return nil
+	}
+	return roles[roleIndex]
 }
 
 func userHasBAGHerRoleInGuild(s *discordgo.Session, i *discordgo.Interaction, user *discordgo.User) bool {
-	member, err := s.GuildMember(i.GuildID, user.ID)
-	if err != nil {
-		panic(err)
-	}
-	return slices.ContainsFunc(member.Roles, func(role string) bool {
-		return bagherRoleInGuild(s, i).ID == role
+	member, _ := s.GuildMember(i.GuildID, user.ID)
+
+	brig := bagherRoleInGuild(s, i)
+
+	return brig != nil && slices.ContainsFunc(member.Roles, func(roleID string) bool {
+		return brig.ID == roleID
 	})
 }
 
 func findBAGHChannelInGuild(s *discordgo.Session, i *discordgo.Interaction) *discordgo.Channel {
 	channels, _ := s.GuildChannels(i.GuildID)
-	return channels[slices.IndexFunc(channels, func(ch *discordgo.Channel) bool { return ch.Name == "play-bagh" })]
+	index := slices.IndexFunc(channels, func(ch *discordgo.Channel) bool { return ch.Name == "play-bagh" })
+	if index == -1 {
+		return nil
+	}
+	return channels[index]
 }
 
 func handleGameActionSelection(action Action) func(*discordgo.Session, *discordgo.InteractionCreate) {
@@ -186,7 +196,10 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) *d
 		bagherRole = role
 	}
 
-	s.GuildMemberRoleAdd(guild.ID, APPLICATION_ID, bagherRole.ID)
+	e := s.GuildMemberRoleAdd(guild.ID, APPLICATION_ID, bagherRole.ID)
+	if e != nil {
+		panic(e)
+	}
 
 	if playBAGHChannel == nil {
 		// make the channel private, but allow anyone with an opt-in role
@@ -208,7 +221,7 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) *d
 		})
 		return ch
 	} else {
-		s.ChannelEdit(playBAGHChannel.ID, &discordgo.ChannelEdit{
+		ch, _ := s.ChannelEdit(playBAGHChannel.ID, &discordgo.ChannelEdit{
 			PermissionOverwrites: []*discordgo.PermissionOverwrite{
 				{
 					ID:   guild.ID,
@@ -222,7 +235,7 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) *d
 				},
 			},
 		})
-		return playBAGHChannel
+		return ch
 	}
 }
 
@@ -289,6 +302,12 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 				Description: "brings up any salient interaction for a user.",
 			},
 			Handler: func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+				// case 0: bagher role is missing.
+				if bagherRoleInGuild(s, i.Interaction) == nil {
+					ir(s, i, roleMissingErrorMessage)
+					return
+				}
+
 				// case 1: member is not a BAGHer.
 				if !userHasBAGHerRoleInGuild(s, i.Interaction, i.Interaction.Member.User) {
 					ir(s, i, challengerNotBAGHerErrorMessage)
@@ -349,8 +368,15 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 				Description: "adds bagher role",
 			},
 			Handler: func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-				s.GuildMemberRoleAdd(i.GuildID, i.Member.User.ID, bagherRoleInGuild(s, i.Interaction).ID)
-				ir(s, i, welcomeMessage)
+				brig := bagherRoleInGuild(s, i.Interaction)
+				if brig == nil {
+					ir(s, i, roleMissingErrorMessage)
+				} else if userHasBAGHerRoleInGuild(s, i.Interaction, i.Member.User) {
+					ir(s, i, alreadyBAGHerErrorMessage)
+				} else {
+					s.GuildMemberRoleAdd(i.GuildID, i.Member.User.ID, brig.ID)
+					ir(s, i, welcomeMessage)
+				}
 			},
 		},
 		{
@@ -360,8 +386,15 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 				Description: "removes bagher role",
 			},
 			Handler: func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-				s.GuildMemberRoleRemove(i.GuildID, i.Member.User.ID, bagherRoleInGuild(s, i.Interaction).ID)
-				ir(s, i, goodbyeMessage)
+				brig := bagherRoleInGuild(s, i.Interaction)
+				if brig == nil {
+					ir(s, i, roleMissingErrorMessage)
+				} else if !userHasBAGHerRoleInGuild(s, i.Interaction, i.Member.User) {
+					ir(s, i, alreadyNotBAGHerErrorMessage)
+				} else {
+					s.GuildMemberRoleRemove(i.GuildID, i.Member.User.ID, brig.ID)
+					ir(s, i, goodbyeMessage)
+				}
 			},
 		},
 		{
@@ -454,6 +487,11 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 				}
 
 				playBAGHChannel := findBAGHChannelInGuild(s, i.Interaction)
+
+				if playBAGHChannel == nil {
+					ir(s, i, playBAGHChannelMissingErrorMessage)
+					return
+				}
 
 				// challenge BAGH
 				if challengee.ID == APPLICATION_ID {
@@ -558,7 +596,7 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 
 		challengeAsChallenge, isChallenge := challenge.(*AwaitingChallengeResponse)
 		if !isChallenge {
-			ir(s, i, challengeAcceptedWhileInGameErrorMessage)
+			ir(s, i, acceptOutdatedChallengeErrorMessage)
 			s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 			return
 		}
@@ -573,15 +611,30 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 		challengerMember, _ := s.GuildMember(challengeAsChallenge.ChallengerInteractions[0].GuildID, challenger.ID)
 		challengeeMember, _ := s.GuildMember(challengeAsChallenge.ChallengerInteractions[0].GuildID, acceptor.ID)
 
-		playBAGHChannel, _ := s.Channel(challengeAsChallenge.Channel.ID)
+		if bagherRoleInGuild(s, challengeAsChallenge.ChallengerInteractions[0]) == nil {
+			ir(s, i, roleMissingErrorMessage)
+			return
+		}
+
+		if !userHasBAGHerRoleInGuild(s, challengeAsChallenge.ChallengerInteractions[0], acceptor) {
+			ir(s, i, acceptorNotBAGHerErrorMessage)
+			return
+		}
+
+		playBAGHChannel := findBAGHChannelInGuild(s, challengeAsChallenge.ChallengerInteractions[0])
+
 		if playBAGHChannel == nil {
 			ir(s, i, playBAGHChannelMissingErrorMessage)
 			return
 		}
 
-		thread, _ := s.ThreadStart(playBAGHChannel.ID,
+		thread, e := s.ThreadStart(playBAGHChannel.ID,
 			gameThreadTitle(challengerMember, challengeeMember),
 			discordgo.ChannelTypeGuildPrivateThread, 60)
+
+		if e != nil {
+			panic(e)
+		}
 
 		// make a game object and put the thread reference there
 		newGame := GameOngoing{
@@ -720,15 +773,12 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 
 		challengeeContent := challengeRescindedNotificationToChallengee(rescinder)
 		challengeeDMChannel, _ := s.UserChannelCreate(challengee.ID)
-		_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 			Content:    &challengeeContent,
 			Components: &clearNotificationButton,
 			ID:         challengeAsChallenge.ChallengeeMessage.ID,
 			Channel:    challengeeDMChannel.ID,
 		})
-		if err != nil {
-			fmt.Println(err)
-		}
 
 		delete(Games, rescinder.ID)
 		delete(Games, challengee.ID)
