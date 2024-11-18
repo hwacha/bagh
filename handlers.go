@@ -428,7 +428,7 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 						Type: discordgo.InteractionResponseChannelMessageWithSource,
 						Data: &discordgo.InteractionResponseData{
-							Content: challengeAcceptNotificationForChallenger(nil, thread),
+							Content: challengeAcceptNotificationForChallenger(challengee, thread),
 							Flags:   discordgo.MessageFlagsEphemeral,
 						},
 					})
@@ -484,6 +484,7 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 	"action_attack": handleGameActionSelection(Attack),
 	"action_guard":  handleGameActionSelection(Guard),
 	"action_heal":   handleGameActionSelection(Heal),
+	"action_undo":   handleGameActionSelection(Unchosen),
 	"challenge_accept": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		acceptor := i.Interaction.User
 		challenge, hasAcceptor := Games[acceptor.ID]
