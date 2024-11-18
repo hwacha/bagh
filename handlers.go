@@ -489,18 +489,21 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 		challenge, hasAcceptor := Games[acceptor.ID]
 
 		if !hasAcceptor {
-			ir(s, i, challengeAcceptedNoChallengeErrorMessage)
+			ir(s, i, acceptOutdatedChallengeErrorMessage)
+			s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 			return
 		}
 
 		challengeAsChallenge, isChallenge := challenge.(*AwaitingChallengeResponse)
 		if !isChallenge {
 			ir(s, i, challengeAcceptedWhileInGameErrorMessage)
+			s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 			return
 		}
 
-		if challengeAsChallenge.Challenger.ID == acceptor.ID {
-			ir(s, i, selfAcceptChallengeErrorMessage)
+		if challengeAsChallenge.ChallengeeMessage.ID != i.Interaction.Message.ID {
+			ir(s, i, acceptOutdatedChallengeErrorMessage)
+			s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 			return
 		}
 
@@ -547,22 +550,25 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 		challenge, hasRefuser := Games[refuser.ID]
 
 		if !hasRefuser {
-			fmt.Println("assertion failure: challenge_refuse called with refuser not challenged.")
+			ir(s, i, refuseOutdatedChallengeErrorMessage)
+			s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 			return
 		}
 
 		challengeAsChallenge, isChallenge := challenge.(*AwaitingChallengeResponse)
 		if !isChallenge {
-			fmt.Println("assertion failure: challenge_refuse called during ongoing game.")
+			ir(s, i, challengeRefusedWhileInGameErrorMessage)
+			s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
+			return
+		}
+
+		if challengeAsChallenge.ChallengeeMessage.ID != i.Interaction.Message.ID {
+			ir(s, i, refuseOutdatedChallengeErrorMessage)
+			s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 			return
 		}
 
 		challenger := challengeAsChallenge.Challenger
-
-		if challenger.ID == refuser.ID {
-			fmt.Println("assertion failure: challenge_refuse called by challenger.")
-			return
-		}
 
 		delete(Games, refuser.ID)
 		delete(Games, challenger.ID)

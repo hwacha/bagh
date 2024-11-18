@@ -5,8 +5,9 @@ import (
 )
 
 const (
-	challengeAcceptedNoChallengeErrorMessage            = "No one is challenging you."
+	acceptOutdatedChallengeErrorMessage                 = "You've tried to accept an outdated challenge."
 	challengeAcceptedWhileInGameErrorMessage            = "You're in the middle of a game already."
+	challengeRefusedWhileInGameErrorMessage             = "You're in the middle of a game already."
 	challengerIssuesChallengeWhileInSessionErrorMessage = "You're already busy. Try again after your game is done."
 	challengerNotBAGHerErrorMessage                     = "You are not a BAGHer! Use the `/join` command to become a BAGHer and issue challenges."
 	chooseAnActionPrompt                                = "Choose one of the following actions."
@@ -16,6 +17,7 @@ const (
 		" and clicking the `challenge` option with my icon next to it."
 	nonPlayerUsesInGameCommandErrorMessage = "You are not a player in this game of BAGH."
 	playerNotBAGHerJoinPrompt              = "Use the `/join` command to view the BAGH channel and start playing BAGH."
+	refuseOutdatedChallengeErrorMessage    = "You've tried to refuse an outdated challenge."
 	selfAcceptChallengeErrorMessage        = "You can't accept your own challenge!"
 	selfChallengeErrorMessage              = "You can't challenge yourself!"
 	welcomeMessage                         = "Welcome to BAGH! You can now play in this server."
