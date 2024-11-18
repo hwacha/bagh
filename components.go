@@ -97,6 +97,19 @@ var chooseActionButton = []discordgo.MessageComponent{
 	},
 }
 
+var clearNotificationButton = []discordgo.MessageComponent{
+	discordgo.ActionsRow{
+		Components: []discordgo.MessageComponent{
+			discordgo.Button{
+				Label:    "Clear Notification",
+				Style:    discordgo.DangerButton,
+				Disabled: false,
+				CustomID: "clear_notification",
+			},
+		},
+	},
+}
+
 var emptyActionGrid = []discordgo.MessageComponent{}
 
 var rescindButton = []discordgo.MessageComponent{

@@ -304,6 +304,11 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 				if sessionIsChallenge {
 					// case 3: member has issued someone a challenge
 					if i.Interaction.Member.User.ID == challenge.Challenger.ID {
+						if !slices.ContainsFunc(challenge.ChallengerInteractions, func(ci *discordgo.Interaction) bool {
+							return i.Interaction.ID == ci.ID
+						}) {
+							challenge.ChallengerInteractions = append(challenge.ChallengerInteractions, i.Interaction)
+						}
 						s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 							Type: discordgo.InteractionResponseChannelMessageWithSource,
 							Data: &discordgo.InteractionResponseData{
@@ -453,11 +458,11 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 				})
 
 				newGameSession := AwaitingChallengeResponse{
-					Challenger:            challenger,
-					Challengee:            challengee,
-					Channel:               playBAGHChannel,
-					ChallengerInteraction: i.Interaction,
-					ChallengeeMessage:     challengeeMessage,
+					Challenger:             challenger,
+					Challengee:             challengee,
+					Channel:                playBAGHChannel,
+					ChallengerInteractions: []*discordgo.Interaction{i.Interaction},
+					ChallengeeMessage:      challengeeMessage,
 				}
 
 				Games[challenger.ID] = &newGameSession
@@ -500,8 +505,8 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 		}
 
 		challenger := challengeAsChallenge.Challenger
-		challengerMember, _ := s.GuildMember(challengeAsChallenge.ChallengerInteraction.GuildID, challenger.ID)
-		challengeeMember, _ := s.GuildMember(challengeAsChallenge.ChallengerInteraction.GuildID, acceptor.ID)
+		challengerMember, _ := s.GuildMember(challengeAsChallenge.ChallengerInteractions[0].GuildID, challenger.ID)
+		challengeeMember, _ := s.GuildMember(challengeAsChallenge.ChallengerInteractions[0].GuildID, acceptor.ID)
 
 		thread, _ := s.ThreadStart(challengeAsChallenge.Channel.ID,
 			gameThreadTitle(challengerMember, challengeeMember),
@@ -530,10 +535,12 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 		s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 
 		challengerContent := challengeAcceptNotificationForChallenger(acceptor, thread)
-		s.InteractionResponseEdit(challengeAsChallenge.ChallengerInteraction, &discordgo.WebhookEdit{
-			Content:    &challengerContent,
-			Components: &[]discordgo.MessageComponent{},
-		})
+		for _, ci := range challengeAsChallenge.ChallengerInteractions {
+			s.InteractionResponseEdit(ci, &discordgo.WebhookEdit{
+				Content:    &challengerContent,
+				Components: &[]discordgo.MessageComponent{},
+			})
+		}
 	},
 	"challenge_refuse": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		refuser := i.Interaction.User
@@ -564,11 +571,18 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 		s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 
 		challengerContent := challengeRefusedNotificationToChallenger(refuser)
-
-		s.InteractionResponseEdit(challengeAsChallenge.ChallengerInteraction, &discordgo.WebhookEdit{
-			Content:    &challengerContent,
-			Components: &emptyActionGrid,
+		challengerDMChannel, _ := s.UserChannelCreate(challenger.ID)
+		s.ChannelMessageSendComplex(challengerDMChannel.ID, &discordgo.MessageSend{
+			Content:    challengerContent,
+			Components: clearNotificationButton,
 		})
+
+		for _, ci := range challengeAsChallenge.ChallengerInteractions {
+			s.InteractionResponseEdit(ci, &discordgo.WebhookEdit{
+				Content:    &challengerContent,
+				Components: &emptyActionGrid,
+			})
+		}
 	},
 	"challenge_rescind": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		rescinder := i.Interaction.User
@@ -595,18 +609,28 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 			return
 		}
 
+		challengeRiscindedConfirmation := challengeRescindedConfirmationToChallenger(challengee)
+
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
 			Data: &discordgo.InteractionResponseData{
-				Content: challengeRescindedConfirmationToChallenger(challengee),
+				Content: challengeRiscindedConfirmation,
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+
+		for _, ci := range challengeAsChallenge.ChallengerInteractions {
+			s.InteractionResponseEdit(ci, &discordgo.WebhookEdit{
+				Content:    &challengeRiscindedConfirmation,
+				Components: &[]discordgo.MessageComponent{},
+			})
+		}
+
 		challengeeContent := challengeRescindedNotificationToChallengee(rescinder)
 		challengeeDMChannel, _ := s.UserChannelCreate(challengee.ID)
 		_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 			Content:    &challengeeContent,
-			Components: &emptyActionGrid,
+			Components: &clearNotificationButton,
 			ID:         challengeAsChallenge.ChallengeeMessage.ID,
 			Channel:    challengeeDMChannel.ID,
 		})
@@ -642,6 +666,9 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &responseData,
 		})
+	},
+	"clear_notification": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
 	},
 }
 

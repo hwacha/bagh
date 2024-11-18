@@ -17,8 +17,8 @@ type AwaitingChallengeResponse struct {
 
 	Channel *discordgo.Channel
 
-	ChallengerInteraction *discordgo.Interaction
-	ChallengeeMessage     *discordgo.Message
+	ChallengerInteractions []*discordgo.Interaction
+	ChallengeeMessage      *discordgo.Message
 }
 
 func (a *AwaitingChallengeResponse) isSessionState() {}
