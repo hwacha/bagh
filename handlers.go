@@ -54,6 +54,32 @@ func findBAGHChannelInGuild(s *discordgo.Session, i *discordgo.Interaction) *dis
 	return channels[index]
 }
 
+func cleanupButtons(s *discordgo.Session, game *GameOngoing) {
+	// remove the game buttons from the last round message
+	s.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		ID:         game.LastRoundMessageID,
+		Channel:    game.Thread.ID,
+		Components: &emptyActionGrid,
+	})
+
+	// remove any buttons from outdated interactions from the previous round
+	for _, player := range [2]*Player{&game.Challenger, &game.Challengee} {
+		for _, chooseActionInteraction := range player.Interactions.ChooseAction {
+			s.InteractionResponseEdit(chooseActionInteraction, &discordgo.WebhookEdit{
+				Components: &emptyActionGrid,
+			})
+		}
+		player.Interactions.ChooseAction = nil
+
+		for _, exitGameInteraction := range player.Interactions.ExitGame {
+			s.InteractionResponseEdit(exitGameInteraction, &discordgo.WebhookEdit{
+				Components: &emptyActionGrid,
+			})
+		}
+		player.Interactions.ExitGame = nil
+	}
+}
+
 func handleGameActionSelection(action Action) func(*discordgo.Session, *discordgo.InteractionCreate) {
 	return func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		presserID := i.Interaction.Member.User.ID
@@ -77,7 +103,7 @@ func handleGameActionSelection(action Action) func(*discordgo.Session, *discordg
 				Data: &actionOptionsResponseDataCopy,
 			})
 
-			for _, chooseActionInteraction := range actor.ChooseActionInteractions {
+			for _, chooseActionInteraction := range actor.Interactions.ChooseAction {
 				s.InteractionResponseEdit(chooseActionInteraction, &discordgo.WebhookEdit{
 					Content:    &actionOptionsResponseDataCopy.Content,
 					Components: &actionOptionsResponseDataCopy.Components,
@@ -94,38 +120,22 @@ func handleGameActionSelection(action Action) func(*discordgo.Session, *discordg
 				Data: &asrd,
 			})
 
-			for _, chooseActionInteraction := range actor.ChooseActionInteractions {
+			for _, chooseActionInteraction := range actor.Interactions.ChooseAction {
 				s.InteractionResponseEdit(chooseActionInteraction, &discordgo.WebhookEdit{
 					Content:    &asrd.Content,
 					Components: &asrd.Components,
 				})
 			}
 		}
-		if !slices.Contains(actor.ChooseActionInteractions, i.Interaction) {
-			actor.ChooseActionInteractions = append(actor.ChooseActionInteractions, i.Interaction)
+		if !slices.Contains(actor.Interactions.ChooseAction, i.Interaction) {
+			actor.Interactions.ChooseAction = append(actor.Interactions.ChooseAction, i.Interaction)
 		}
 
 		if game.Challenger.GetAction() != Unchosen && game.Challengee.GetAction() != Unchosen {
-
-			// remove the "choose action" button from the last message
-			s.ChannelMessageEditComplex(&discordgo.MessageEdit{
-				ID:         game.LastRoundMessageID,
-				Channel:    game.Thread.ID,
-				Components: &emptyActionGrid,
-			})
-
 			game.Challenger.actionLocked = true
 			game.Challengee.actionLocked = true
 
-			// remove any buttons from outdated interactions from the previous round
-			for _, player := range [2]*Player{&game.Challenger, &game.Challengee} {
-				for _, chooseActionInteraction := range player.ChooseActionInteractions {
-					s.InteractionResponseEdit(chooseActionInteraction, &discordgo.WebhookEdit{
-						Components: &emptyActionGrid,
-					})
-				}
-				player.ChooseActionInteractions = nil
-			}
+			cleanupButtons(s, game)
 
 			actionLog, isGameOver, winner := game.NextStateFromActions()
 			s.ChannelMessageSend(game.Thread.ID, actionLog)
@@ -142,7 +152,7 @@ func handleGameActionSelection(action Action) func(*discordgo.Session, *discordg
 			} else {
 				msg, _ := s.ChannelMessageSendComplex(game.Thread.ID, &discordgo.MessageSend{
 					Content:    game.ToString(),
-					Components: chooseActionButton,
+					Components: chooseActionOrExitGameButtonRow,
 				})
 
 				game.LastRoundMessageID = msg.ID
@@ -357,7 +367,7 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 						if !slices.ContainsFunc(game.Thread.Messages, func(m *discordgo.Message) bool { return m.ID == game.LastRoundMessageID }) {
 							s.ChannelMessageSendComplex(game.Thread.ID, &discordgo.MessageSend{
 								Content:    game.ToString(),
-								Components: chooseActionButton,
+								Components: chooseActionOrExitGameButtonRow,
 							})
 							ir(s, i, resendLastRoundNotification)
 						} else {
@@ -456,7 +466,7 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 						game.Thread = newThread
 						msg, _ := s.ChannelMessageSendComplex(newThread.ID, &discordgo.MessageSend{
 							Content:    game.ToString(),
-							Components: chooseActionButton,
+							Components: chooseActionOrExitGameButtonRow,
 						})
 
 						game.LastRoundMessageID = msg.ID
@@ -539,7 +549,7 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 
 					msg, _ := s.ChannelMessageSendComplex(thread.ID, &discordgo.MessageSend{
 						Content:    newGame.ToString(),
-						Components: chooseActionButton,
+						Components: chooseActionOrExitGameButtonRow,
 					})
 
 					newGame.LastRoundMessageID = msg.ID
@@ -668,7 +678,7 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 
 		msg, _ := s.ChannelMessageSendComplex(thread.ID, &discordgo.MessageSend{
 			Content:    newGame.ToString(),
-			Components: chooseActionButton,
+			Components: chooseActionOrExitGameButtonRow,
 		})
 
 		newGame.LastRoundMessageID = msg.ID
@@ -812,7 +822,7 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 
 		player := game.GetPlayer(presserID)
 
-		player.ChooseActionInteractions = append(player.ChooseActionInteractions, i.Interaction)
+		player.Interactions.ChooseAction = append(player.Interactions.ChooseAction, i.Interaction)
 
 		var responseData discordgo.InteractionResponseData
 
@@ -826,6 +836,130 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &responseData,
 		})
+	},
+	"exit_game": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		presserID := i.Interaction.Member.User.ID
+		game, found := Games[presserID].(*GameOngoing)
+
+		if !(found && game.Thread.ID == i.Interaction.ChannelID) {
+			ir(s, i, nonPlayerUsesInGameCommandErrorMessage)
+			return
+		}
+
+		player := game.GetPlayer(presserID)
+
+		player.Interactions.ExitGame = append(player.Interactions.ExitGame, i.Interaction)
+
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content:    exitGamePrompt,
+				Components: voteToDrawOrForfeitButtonRow,
+				Flags:      discordgo.MessageFlagsEphemeral,
+			},
+		})
+	},
+	"forfeit": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		presserID := i.Interaction.Member.User.ID
+		game, found := Games[presserID].(*GameOngoing)
+
+		if !(found && game.Thread.ID == i.Interaction.ChannelID) {
+			ir(s, i, nonPlayerUsesInGameCommandErrorMessage)
+			return
+		}
+
+		forfeiter := game.GetPlayer(presserID).User
+		winner := game.GetOtherPlayer(presserID).User
+
+		cleanupButtons(s, game)
+
+		// confirm forfeit
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+			Data: &discordgo.InteractionResponseData{
+				Content:    forfeitConfirmation,
+				Components: emptyActionGrid,
+				Flags:      discordgo.MessageFlagsEphemeral,
+			},
+		})
+
+		// remove game session
+		delete(Games, forfeiter.ID)
+		delete(Games, winner.ID)
+
+		// notify thread of forfeit and winner
+		s.ChannelMessageSend(game.Thread.ID, forfeitNotification(forfeiter, winner))
+	},
+	"vote_to_draw": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		presserID := i.Interaction.Member.User.ID
+		game, found := Games[presserID].(*GameOngoing)
+
+		if !(found && game.Thread.ID == i.Interaction.ChannelID) {
+			ir(s, i, nonPlayerUsesInGameCommandErrorMessage)
+			return
+		}
+
+		voter := game.GetPlayer(presserID)
+		voter.votedToDraw = true
+
+		otherPlayer := game.GetOtherPlayer(presserID)
+
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+			Data: &discordgo.InteractionResponseData{
+				Content:    votedToDrawConfirmation,
+				Components: withdrawVoteOrForfeitButtonRow,
+			},
+		})
+
+		votedToDrawConfirmationVar := votedToDrawConfirmation
+
+		for _, exitGameInteraction := range voter.Interactions.ExitGame {
+			s.InteractionResponseEdit(exitGameInteraction, &discordgo.WebhookEdit{
+				Content:    &votedToDrawConfirmationVar,
+				Components: &withdrawVoteOrForfeitButtonRow,
+			})
+		}
+
+		s.ChannelMessageSend(game.Thread.ID, votedToDrawNotification(voter.User))
+
+		if otherPlayer.votedToDraw {
+			cleanupButtons(s, game)
+			delete(Games, voter.User.ID)
+			delete(Games, otherPlayer.User.ID)
+			s.ChannelMessageSend(game.Thread.ID, voteToDrawPassesNotification)
+		}
+	},
+	"withdraw_vote_to_draw": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		presserID := i.Interaction.Member.User.ID
+		game, found := Games[presserID].(*GameOngoing)
+
+		if !(found && game.Thread.ID == i.Interaction.ChannelID) {
+			ir(s, i, nonPlayerUsesInGameCommandErrorMessage)
+			return
+		}
+
+		voter := game.GetPlayer(presserID)
+		voter.votedToDraw = false
+
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+			Data: &discordgo.InteractionResponseData{
+				Content:    voteToDrawWithdrawnConfirmation,
+				Components: voteToDrawOrForfeitButtonRow,
+			},
+		})
+
+		voteToDrawWithdrawnConfirmationVar := voteToDrawWithdrawnConfirmation
+
+		for _, exitGameInteraction := range voter.Interactions.ExitGame {
+			s.InteractionResponseEdit(exitGameInteraction, &discordgo.WebhookEdit{
+				Content:    &voteToDrawWithdrawnConfirmationVar,
+				Components: &voteToDrawOrForfeitButtonRow,
+			})
+		}
+
+		s.ChannelMessageSend(game.Thread.ID, voteToDrawWithdrawnNotification(voter.User))
 	},
 	"clear_notification": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		s.ChannelMessageDelete(i.Interaction.ChannelID, i.Interaction.Message.ID)
@@ -844,16 +978,53 @@ func handleApplicationCommand(s *discordgo.Session, i *discordgo.InteractionCrea
 
 func handleGuildCreate(s *discordgo.Session, gc *discordgo.GuildCreate) {
 	makeChannelAndRoleForGuild(s, gc.Guild)
+
+	// register application commands
+	for _, commandAndHandler := range applicationCommandsAndHandlers {
+		s.ApplicationCommandCreate(APPLICATION_ID, gc.Guild.ID, &commandAndHandler.Command)
+	}
 }
 
 func handleReady(s *discordgo.Session, ready *discordgo.Ready) {
-	for _, guild := range ready.Guilds {
-		// create a text channel for bagh if it doesn't exist
-		makeChannelAndRoleForGuild(s, guild)
+}
 
-		// register application commands
-		for _, commandAndHandler := range applicationCommandsAndHandlers {
-			s.ApplicationCommandCreate(APPLICATION_ID, guild.ID, &commandAndHandler.Command)
+func handleGuildMemberRemove(s *discordgo.Session, gmr *discordgo.GuildMemberRemove) {
+	session, hasSession := Games[gmr.Member.User.ID]
+	if hasSession {
+		delete(Games, gmr.Member.User.ID)
+		challenge, isChallenge := session.(*AwaitingChallengeResponse)
+
+		var dmChannel *discordgo.Channel
+
+		if isChallenge {
+			if challenge.Challenger.ID == gmr.Member.User.ID {
+				delete(Games, challenge.Challengee.ID)
+				dmChannel, _ = s.UserChannelCreate(challenge.Challengee.ID)
+				s.ChannelMessageDelete(dmChannel.ID, challenge.ChallengeeMessage.ID)
+				s.ChannelMessageSendComplex(dmChannel.ID, &discordgo.MessageSend{
+					Content:    memberRemovedNotification(challenge.Challenger),
+					Components: clearNotificationButton,
+				})
+			} else {
+				delete(Games, challenge.Challenger.ID)
+				dmChannel, _ = s.UserChannelCreate(challenge.Challenger.ID)
+				s.ChannelMessageSendComplex(dmChannel.ID, &discordgo.MessageSend{
+					Content:    memberRemovedNotification(challenge.Challengee),
+					Components: clearNotificationButton,
+				})
+			}
+		} else {
+			game, _ := session.(*GameOngoing)
+			leaver := game.GetPlayer(gmr.Member.User.ID)
+			stayer := game.GetOtherPlayer(gmr.Member.User.ID)
+			delete(Games, stayer.User.ID)
+			cleanupButtons(s, game)
+			dmChannel, _ = s.UserChannelCreate(stayer.User.ID)
+			s.ChannelMessageSendComplex(dmChannel.ID, &discordgo.MessageSend{
+				Content:    memberRemovedNotification(leaver.User),
+				Components: clearNotificationButton,
+			})
+			s.ChannelMessageSend(game.Thread.ID, memberRemovedNotification(leaver.User))
 		}
 	}
 }

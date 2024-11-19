@@ -2,19 +2,33 @@ package main
 
 import "github.com/bwmarrin/discordgo"
 
+type Interactions struct {
+	ChooseAction []*discordgo.Interaction
+	ExitGame     []*discordgo.Interaction
+}
+
 type Player struct {
-	User                     *discordgo.User
-	ChooseActionInteractions []*discordgo.Interaction
-	HP                       int
-	ShieldBreakCounter       int
-	Advantage                int
-	Boost                    int
-	currentAction            Action
-	actionLocked             bool
+	User               *discordgo.User
+	Interactions       Interactions
+	HP                 int
+	ShieldBreakCounter int
+	Advantage          int
+	Boost              int
+	currentAction      Action
+	actionLocked       bool
+	votedToDraw        bool
 }
 
 func NewPlayer(u *discordgo.User) Player {
-	return Player{User: u, HP: BASE_MAX_HEALTH, Advantage: 0, Boost: 0, currentAction: Unchosen, actionLocked: false}
+	return Player{
+		User:          u,
+		Interactions:  Interactions{ChooseAction: nil, ExitGame: nil},
+		HP:            BASE_MAX_HEALTH,
+		Advantage:     0,
+		Boost:         0,
+		currentAction: Unchosen,
+		actionLocked:  false,
+	}
 }
 
 func (p Player) GetAction() Action {

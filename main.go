@@ -40,9 +40,10 @@ func main() {
 
 	dg.AddHandler(handleReady)
 	dg.AddHandler(handleGuildCreate)
+	dg.AddHandler(handleGuildMemberRemove)
 	dg.AddHandler(handleApplicationCommand)
 
-	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsGuildMembers
+	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsGuildMembers
 
 	err = dg.Open()
 	if err != nil {

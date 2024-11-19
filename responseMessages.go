@@ -14,7 +14,8 @@ const (
 	challengerIssuesChallengeWhileInSessionErrorMessage = "You're already busy. Try again after your game is done."
 	challengerNotBAGHerErrorMessage                     = "You are not a `bagher`! Use the `/join` command to become a `bagher` and issue challenges."
 	chooseAnActionPrompt                                = "Choose one of the following actions."
-	undoneSelectionChooseAnActionPrompt                 = "You have undone your selection. " + chooseAnActionPrompt
+	exitGamePrompt                                      = "Exit the game by selecting one of the following options."
+	forfeitConfirmation                                 = "You have chosen to forfeit this game."
 	gameThreadMissingErrorMessage                       = "You're in the middle of a game, but the thread has been deleted. Ask an admin to run `/restore` to bring it back."
 	goodbyeMessage                                      = "You can no longer play BAGH in this server. Goodbye!"
 	issueChallengePrompt                                = "Issue someone a challenge by right-clicking on their name in the server, going to Apps," +
@@ -30,6 +31,10 @@ const (
 	roleMissingErrorMessage                = "The `bagher` role is missing from the server. Ask an admin to run `/restore` to bring it back."
 	selfAcceptChallengeErrorMessage        = "You can't accept your own challenge!"
 	selfChallengeErrorMessage              = "You can't challenge yourself!"
+	undoneSelectionChooseAnActionPrompt    = "You have undone your selection. " + chooseAnActionPrompt
+	votedToDrawConfirmation                = "You have voted to end the game this round in a draw."
+	voteToDrawPassesNotification           = "By unanimous consent, the game ends this round in a **draw**.\n# Draw."
+	voteToDrawWithdrawnConfirmation        = "You have withdrawn your vote to end the game this round in a draw."
 	welcomeMessage                         = "Welcome to BAGH! You can now play in this server."
 )
 
@@ -77,6 +82,10 @@ func challengeIssuedWhileChallengeeInSessionErrorMessage(challengee *discordgo.U
 	return challengee.Mention() + " is busy. Try challenging them later."
 }
 
+func forfeitNotification(forfeiter *discordgo.User, otherPlayer *discordgo.User) string {
+	return forfeiter.Mention() + " has forfeited. " + otherPlayer.Mention() + " **wins** by default!\n# Congratulations, " + otherPlayer.Mention() + "!"
+}
+
 func gameThreadTitle(challenger *discordgo.Member, challengee *discordgo.Member) string {
 	challengeeNick := "BAGH-Bot"
 	if challengee != nil {
@@ -86,6 +95,10 @@ func gameThreadTitle(challenger *discordgo.Member, challengee *discordgo.Member)
 	return challenger.DisplayName() + "'s BAGH Game Against " + challengeeNick
 }
 
+func memberRemovedNotification(removedPlayer *discordgo.User) string {
+	return removedPlayer.Mention() + " has been removed from the server you were playing BAGH in. The session has been terminated."
+}
+
 func playerAcceptOrRefuseChallengePrompt(challenger *discordgo.User, dm *discordgo.Channel, message *discordgo.Message) string {
 	return challenger.Mention() + "'s challenge is awaiting your response.\nAccept or refuse here: " +
 		"https://discord.com/channels/@me/" + dm.ID + "/" + message.ID
@@ -93,4 +106,12 @@ func playerAcceptOrRefuseChallengePrompt(challenger *discordgo.User, dm *discord
 
 func playerInGameRedirectToGameThread(thread *discordgo.Channel) string {
 	return "You're in the middle of a BAGH game.\nJoin back in here: " + thread.Mention()
+}
+
+func votedToDrawNotification(voter *discordgo.User) string {
+	return voter.Mention() + " has voted to end the game this round in a draw."
+}
+
+func voteToDrawWithdrawnNotification(voter *discordgo.User) string {
+	return voter.Mention() + " has withdrawn their vote to end the game this round in a draw."
 }

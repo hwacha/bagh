@@ -43,6 +43,16 @@ func (game *GameOngoing) GetPlayer(userID string) *Player {
 	return nil
 }
 
+func (game *GameOngoing) GetOtherPlayer(userID string) *Player {
+	if game.Challenger.User.ID == userID {
+		return &game.Challengee
+	}
+	if game.Challengee.User.ID == userID {
+		return &game.Challenger
+	}
+	return nil
+}
+
 func (game *GameOngoing) ChooseAIMove() {
 	r := rand.IntN(4)
 	game.Challengee.currentAction = Action(r)
@@ -297,6 +307,8 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 			actionLog += "- " + winner.User.Mention() + " secures **victory**!"
 		}
 	} else {
+		game.Challenger.votedToDraw = false
+		game.Challengee.votedToDraw = false
 		game.Round++
 	}
 

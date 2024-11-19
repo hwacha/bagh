@@ -84,7 +84,7 @@ var actionUndoButton = []discordgo.MessageComponent{
 	},
 }
 
-var chooseActionButton = []discordgo.MessageComponent{
+var chooseActionOrExitGameButtonRow = []discordgo.MessageComponent{
 	discordgo.ActionsRow{
 		Components: []discordgo.MessageComponent{
 			discordgo.Button{
@@ -92,6 +92,12 @@ var chooseActionButton = []discordgo.MessageComponent{
 				Style:    discordgo.PrimaryButton,
 				Disabled: false,
 				CustomID: "choose_action",
+			},
+			discordgo.Button{
+				Label:    "Exit Game",
+				Style:    discordgo.SecondaryButton,
+				Disabled: false,
+				CustomID: "exit_game",
 			},
 		},
 	},
@@ -111,6 +117,44 @@ var clearNotificationButton = []discordgo.MessageComponent{
 }
 
 var emptyActionGrid = []discordgo.MessageComponent{}
+
+var voteToDrawOrForfeitButtonRow = []discordgo.MessageComponent{
+	discordgo.ActionsRow{
+		Components: []discordgo.MessageComponent{
+			discordgo.Button{
+				Label:    "Vote to Draw",
+				Style:    discordgo.SecondaryButton,
+				Disabled: false,
+				CustomID: "vote_to_draw",
+			},
+			discordgo.Button{
+				Label:    "Forfeit",
+				Style:    discordgo.DangerButton,
+				Disabled: false,
+				CustomID: "forfeit",
+			},
+		},
+	},
+}
+
+var withdrawVoteOrForfeitButtonRow = []discordgo.MessageComponent{
+	discordgo.ActionsRow{
+		Components: []discordgo.MessageComponent{
+			discordgo.Button{
+				Label:    "Withdraw Vote",
+				Style:    discordgo.SecondaryButton,
+				Disabled: false,
+				CustomID: "withdraw_vote_to_draw",
+			},
+			discordgo.Button{
+				Label:    "Forfeit",
+				Style:    discordgo.DangerButton,
+				Disabled: false,
+				CustomID: "forfeit",
+			},
+		},
+	},
+}
 
 var rescindButton = []discordgo.MessageComponent{
 	discordgo.ActionsRow{
