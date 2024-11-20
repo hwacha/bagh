@@ -157,7 +157,7 @@ func handleGameActionSelection(action Action) func(*discordgo.Session, *discordg
 
 				game.LastRoundMessageID = msg.ID
 
-				if game.Challengee.User.ID == APPLICATION_ID {
+				if game.Challengee.User.ID == ApplicationID {
 					game.ChooseAIMove()
 				}
 			}
@@ -205,7 +205,7 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) (*
 
 		bagherRole = role
 	}
-	s.GuildMemberRoleAdd(guild.ID, APPLICATION_ID, bagherRole.ID)
+	s.GuildMemberRoleAdd(guild.ID, ApplicationID, bagherRole.ID)
 
 	if playBAGHChannel == nil {
 		// make the channel private, but allow anyone with an opt-in role
@@ -224,7 +224,7 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) (*
 					Allow: discordgo.PermissionViewChannel,
 				},
 				{
-					ID:    APPLICATION_ID,
+					ID:    ApplicationID,
 					Type:  discordgo.PermissionOverwriteTypeMember,
 					Allow: discordgo.PermissionViewChannel,
 				},
@@ -244,7 +244,7 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) (*
 					Allow: discordgo.PermissionViewChannel,
 				},
 				{
-					ID:    APPLICATION_ID,
+					ID:    ApplicationID,
 					Type:  discordgo.PermissionOverwriteTypeMember,
 					Allow: discordgo.PermissionViewChannel,
 				},
@@ -458,7 +458,7 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 
 						challengerMember, _ := s.GuildMember(guild.ID, game.Challenger.User.ID)
 						var challengeeMember *discordgo.Member = nil
-						if game.Challengee.User.ID != APPLICATION_ID {
+						if game.Challengee.User.ID != ApplicationID {
 							challengeeMember, _ = s.GuildMember(guild.ID, game.Challengee.User.ID)
 						}
 
@@ -529,7 +529,7 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 				}
 
 				// challenge BAGH
-				if challengee.ID == APPLICATION_ID {
+				if challengee.ID == ApplicationID {
 					// start a new thread for a game
 					playBAGHChannel := findBAGHChannelInGuild(s, i.Interaction)
 					if playBAGHChannel == nil {
@@ -984,7 +984,7 @@ func handleGuildCreate(s *discordgo.Session, gc *discordgo.GuildCreate) {
 
 	// register application commands
 	for _, commandAndHandler := range applicationCommandsAndHandlers {
-		s.ApplicationCommandCreate(APPLICATION_ID, gc.Guild.ID, &commandAndHandler.Command)
+		s.ApplicationCommandCreate(ApplicationID, gc.Guild.ID, &commandAndHandler.Command)
 	}
 }
 
@@ -1032,7 +1032,7 @@ func handleGuildMemberRemove(s *discordgo.Session, gmr *discordgo.GuildMemberRem
 	}
 }
 
-func handleGuildLeave(s *discordgo.Session, gd *discordgo.GuildDelete) {
+func handleGuildLeave(_ *discordgo.Session, gd *discordgo.GuildDelete) {
 	for id, session := range Games {
 		challenge, isChallenge := session.(*AwaitingChallengeResponse)
 		if isChallenge && challenge.Channel.GuildID == gd.Guild.ID {
