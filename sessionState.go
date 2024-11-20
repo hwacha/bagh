@@ -105,16 +105,16 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 			if player.ShieldBreakCounter == 0 {
 				actionLog += "- " + playerMention + "'s shield is **mended**!\n"
 			} else {
-				actionLog += "- " + playerMention + "'s shield is still broken.\n"
+				actionLog += "- " + playerMention + "'s shield remains **broken**.\n"
 			}
 		}
 
 		if playerAction == Boost {
 			if player.Boost < MAX_BOOST {
 				player.Boost += 1
-				actionLog += "- " + playerMention + " " + actionStrings[Boost] + "s to " + strconv.Itoa(player.Boost) + ".\n"
+				actionLog += "- " + playerMention + " " + actionStrings[Boost] + "s to **" + strconv.Itoa(player.Boost) + "**.\n"
 			} else {
-				actionLog += "- " + playerMention + " " + actionStrings[Boost] + "s, preserving a boost of " + strconv.Itoa(player.Boost) + ".\n"
+				actionLog += "- " + playerMention + " " + actionStrings[Boost] + "s, preserving a boost of **" + strconv.Itoa(player.Boost) + "**.\n"
 			}
 		}
 	}
@@ -167,11 +167,11 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 					if agent.Boost > 0 {
 						attackString = "boosted " + attackString
 					}
-					delayString += "- " + patientMention + "'s counterattack renders " + agentMention + "'s " + attackString + " impotent.\n"
+					delayString += "- " + patientMention + "'s counterattack renders " + agentMention + "'s " + attackString + " **impotent**.\n"
 				}
 			case Guard:
 				if patient.ShieldBreakCounter > 0 { // shield is broken
-					actionLog += "- " + agentMention + " attacks, and " + patientMention + " " + actionStrings[Guard] + "s, but the shield is broken.\n"
+					actionLog += "- " + agentMention + " attacks, and " + patientMention + " " + actionStrings[Guard] + "s, but the shield is **broken**.\n"
 				} else { // shield not broken
 					attackGoesThrough = false
 					attackString := actionStrings[Attack] + "s"
@@ -182,33 +182,34 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 					if patient.Boost > 0 {
 						guardString += " with a boost of " + strconv.Itoa(patient.Boost)
 					}
-					actionLog += "- " + agentMention + " " + attackString + ", but " + patientMention + " " + guardString + " and prevents damage.\n"
+					actionLog += "- " + agentMention + " " + attackString + ", but " + patientMention + " " + guardString + " and **prevents damage**.\n"
 					// agent has higher boost
 					if boostDifferential > 0 {
-						// actionLog += "Because " + agentMention + " has higher boost than " + patientMention + ", " + patientMention + " gains no advantage. "
-
 						patient.ShieldBreakCounter = boostDifferential
 						shieldJustBroke[patient] = true
 						actionLog += "- " + patientMention + "'s shield **breaks**! Its damage is at " + strconv.Itoa(patient.ShieldBreakCounter) + ".\n"
 					} else if agentHasAdvantage { // agent has advantage
-						// actionLog += "Because " + agentMention + " has advantage over " + patientMention + ", " + patientMention + " gains no advantage. "
+						actionLog += "- Because " + agentMention + " has advantage over " + patientMention + ", " + patientMention + " gains no advantage.\n"
 					} else { // patient gains or retains advantage
 						oldAdvantage := patient.Advantage
 						patient.Advantage = max(patient.Advantage, (-1*boostDifferential)+1)
 
 						actionLog += "- " + patientMention
 						if oldAdvantage == patient.Advantage {
-							actionLog += " retains advantage at "
+							actionLog += " retains advantage at **"
 						} else {
-							actionLog += " gains advantage up to "
+							actionLog += " gains advantage up to **"
 						}
-						actionLog += strconv.Itoa(patient.Advantage) + ".\n"
+						actionLog += strconv.Itoa(patient.Advantage) + "**.\n"
 						gainedOrRetainedAdvantage[patient] = true
 					}
 				}
 			case Heal:
-				// heal is interrupted
-				delayString += "- " + patientMention + "'s " + actionStrings[Heal] + "ing is **interrupted** by " + agentMention + "'s attack.\n"
+				if !patientHasAdvantage {
+					// heal is interrupted
+					delayString += "- " + patientMention + "'s " + actionStrings[Heal] + "ing is **interrupted** by " + agentMention + "'s attack.\n"
+				}
+
 			}
 			if attackGoesThrough {
 				damage := 1 + agent.Boost
@@ -220,7 +221,7 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 				if agent.Boost > 0 {
 					actionLog += "a boosted "
 				}
-				actionLog += strconv.Itoa(damage) + " damage"
+				actionLog += "**" + strconv.Itoa(damage) + "** damage"
 				if agentHasAdvantage {
 					actionLog += " with advantage"
 				}
@@ -230,14 +231,18 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 		case Guard:
 			if patientAction != Attack {
 				// no effect
-				actionLog += "- " + agentMention + " " + actionStrings[Guard] + "s to no effect.\n"
+				actionLog += "- " + agentMention + " " + actionStrings[Guard] + "s to **no effect**.\n"
 			}
 		case Heal:
-			if patientAction != Attack { // heal not interrupted
+			if patientAction != Attack || agentHasAdvantage { // heal not interrupted
 				maxOverheal := BASE_MAX_HEALTH + 1 + agent.Boost
 				newHP := min(agent.HP+1+agent.Boost, maxOverheal)
 
 				actionLog += "- " + agentMention + " " + actionStrings[Heal] + "s"
+
+				if patientAction == Attack && agentHasAdvantage {
+					actionLog += ", with **advantage preventing interruption** from " + patient.User.Mention() + "'s attack,"
+				}
 
 				if agent.HP >= newHP { // no effect
 					actionLog += " to no effect.\n"
@@ -245,13 +250,13 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 					diff := newHP - agent.HP
 					agent.HP = newHP
 
-					actionLog += " by " + strconv.Itoa(diff) + " to "
+					actionLog += " by **" + strconv.Itoa(diff) + "** to "
 
 					if newHP > BASE_MAX_HEALTH {
 						actionLog += "an overheal of "
 					}
 
-					actionLog += strconv.Itoa(newHP) + ".\n"
+					actionLog += "**" + strconv.Itoa(newHP) + "**.\n"
 				}
 			}
 		}
@@ -273,14 +278,14 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 			if player.Boost > 0 {
 				player.Boost = 0
 				if !isOver {
-					actionLog += "- " + playerMention + "'s boost is expended to 0.\n"
+					actionLog += "- " + playerMention + "'s boost is **expended to 0**.\n"
 				}
 			}
 		}
 
 		if !isOver && !gainedOrRetainedAdvantage[player] && player.Advantage > 0 {
 			player.Advantage--
-			secondString += "- " + playerMention + "'s advantage falls to " + strconv.Itoa(player.Advantage) + ".\n"
+			secondString += "- " + playerMention + "'s advantage **falls to " + strconv.Itoa(player.Advantage) + "**.\n"
 		}
 
 		if !isOver && player.ShieldBreakCounter > 0 {
