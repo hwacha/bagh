@@ -175,7 +175,7 @@ func ir(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
 	})
 }
 
-func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) *discordgo.Channel {
+func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) (*discordgo.Channel, error) {
 	// create a text channel for bagh, if it doesn't exist
 	channels, _ := s.GuildChannels(guild.ID)
 
@@ -209,7 +209,7 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) *d
 
 	if playBAGHChannel == nil {
 		// make the channel private, but allow anyone with an opt-in role
-		ch, _ := s.GuildChannelCreateComplex(guild.ID, discordgo.GuildChannelCreateData{
+		return s.GuildChannelCreateComplex(guild.ID, discordgo.GuildChannelCreateData{
 			Name: "play-bagh",
 			Type: discordgo.ChannelTypeGuildText,
 			PermissionOverwrites: []*discordgo.PermissionOverwrite{
@@ -230,9 +230,8 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) *d
 				},
 			},
 		})
-		return ch
 	} else {
-		ch, _ := s.ChannelEdit(playBAGHChannel.ID, &discordgo.ChannelEdit{
+		return s.ChannelEdit(playBAGHChannel.ID, &discordgo.ChannelEdit{
 			PermissionOverwrites: []*discordgo.PermissionOverwrite{
 				{
 					ID:   guild.ID,
@@ -251,7 +250,6 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) *d
 				},
 			},
 		})
-		return ch
 	}
 }
 
@@ -438,7 +436,12 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 			},
 			Handler: func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				guild, _ := s.Guild(i.GuildID)
-				ch := makeChannelAndRoleForGuild(s, guild)
+				ch, err := makeChannelAndRoleForGuild(s, guild)
+
+				if err != nil {
+					ir(s, i, checkPermissionsErrorMessage)
+					return
+				}
 
 				for _, session := range Games {
 					challenge, isChallenge := session.(*AwaitingChallengeResponse)
@@ -1025,6 +1028,20 @@ func handleGuildMemberRemove(s *discordgo.Session, gmr *discordgo.GuildMemberRem
 				Components: clearNotificationButton,
 			})
 			s.ChannelMessageSend(game.Thread.ID, memberRemovedNotification(leaver.User))
+		}
+	}
+}
+
+func handleGuildLeave(s *discordgo.Session, gd *discordgo.GuildDelete) {
+	for id, session := range Games {
+		challenge, isChallenge := session.(*AwaitingChallengeResponse)
+		if isChallenge && challenge.Channel.GuildID == gd.Guild.ID {
+			defer delete(Games, id)
+		} else {
+			game, _ := session.(*GameOngoing)
+			if game.Thread.GuildID == gd.Guild.ID {
+				defer delete(Games, id)
+			}
 		}
 	}
 }
