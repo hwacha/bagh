@@ -10,7 +10,7 @@ A player can accumulate up to 6 total boost. Any boosts beyond this will not inc
 
 **NOTE**: *Boost is expended even if an action is unsuccessful or has no effect. The only way to keep boost is to preserve the boost streaks.*
 ### Attack
-**Attack**ing does a point of damage to the opposing player. If the opposing player's HP drops to 0, then the attacker will win. If both players attack each other on the same turn, they will each damage the other. This may result in a draw if both players lose all their HP.
+**Attack**ing does a point of damage to the opposing player. If the opposing player's HP drops to 0, then the attacker will win. If both players attack each other on the same turn, they will each damage the other. If both players' HP drops below 0, then whoever has more HP wins. If both players have the same final HP, they both endure to the next round with 1HP.
 
 A boosted attack will do one more point of damage for each boost. For example, if a player has a boost of 2 and attacks, they will do 3 points of damage.
 ### Guard
