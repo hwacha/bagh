@@ -980,12 +980,27 @@ func handleApplicationCommand(s *discordgo.Session, i *discordgo.InteractionCrea
 }
 
 func handleGuildCreate(s *discordgo.Session, gc *discordgo.GuildCreate) {
-	makeChannelAndRoleForGuild(s, gc.Guild)
+	ch, err := makeChannelAndRoleForGuild(s, gc.Guild)
 
 	// register application commands
 	for _, commandAndHandler := range applicationCommandsAndHandlers {
 		s.ApplicationCommandCreate(ApplicationID, gc.Guild.ID, &commandAndHandler.Command)
 	}
+
+	// pin a message about BAGH options to the play-bagh channel
+	if err == nil {
+		msg, messageError := s.ChannelMessageSend(ch.ID, baghOptions)
+
+		if messageError != nil {
+			pinErr := s.ChannelMessagePin(ch.ID, msg.ID)
+			if pinErr != nil {
+				fmt.Println(pinErr)
+			}
+		}
+	} else {
+		fmt.Println(err)
+	}
+
 }
 
 func handleReady(s *discordgo.Session, ready *discordgo.Ready) {

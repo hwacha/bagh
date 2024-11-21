@@ -64,13 +64,10 @@ func (game *GameOngoing) IsGameOver() (bool, *Player) {
 	if game.Challenger.HP > 0 && game.Challengee.HP > 0 {
 		return false, nil
 	}
-	if game.Challenger.HP <= 0 && game.Challengee.HP <= 0 {
-		return true, nil
-	}
-	if game.Challenger.HP > 0 {
+	if game.Challenger.HP > game.Challengee.HP {
 		return true, &game.Challenger
 	}
-	if game.Challengee.HP > 0 {
+	if game.Challengee.HP > game.Challenger.HP {
 		return true, &game.Challengee
 	}
 
@@ -215,7 +212,6 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 				damage := 1 + agent.Boost
 
 				patient.HP -= damage
-				patient.HP = max(patient.HP, 0)
 
 				actionLog += "- " + agentMention + " " + actionStrings[Attack] + "s for "
 				if agent.Boost > 0 {
@@ -259,6 +255,20 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 					actionLog += "**" + strconv.Itoa(newHP) + "**.\n"
 				}
 			}
+		}
+	}
+
+	// endure/sudden death to prevent potential draw
+	if game.Challenger.HP <= 0 && game.Challengee.HP <= 0 {
+		actionLog += "- Both players have lost all their HP the same turn, "
+		if game.Challenger.HP == game.Challengee.HP {
+			game.Challenger.HP = 1
+			game.Challengee.HP = 1
+			actionLog += "and have the same final HP. They endure with 1HP each."
+		} else if game.Challenger.HP > game.Challengee.HP {
+			actionLog += "but " + game.Challenger.User.Mention() + "'s health was utlimately higher, securing **victory**!"
+		} else {
+			actionLog += "but " + game.Challengee.User.Mention() + "'s health was utlimately higher, securing **victory**!"
 		}
 	}
 

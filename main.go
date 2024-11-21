@@ -33,6 +33,7 @@ func main() {
 
 	godotenv.Load()
 	token = os.Getenv("BOT_TOKEN")
+	ApplicationID = os.Getenv("APPLICATION_ID")
 
 	dg, err := discordgo.New("Bot " + token)
 	if err != nil {

@@ -5,10 +5,17 @@ import (
 )
 
 const (
-	acceptorNotBAGHerErrorMessage                       = "You are not a `bagher`! Use the `/join` command to become a `bagher` and accept this challenge."
-	acceptOutdatedChallengeErrorMessage                 = "You've tried to accept an outdated challenge."
-	alreadyBAGHerErrorMessage                           = "You're already a `bagher`!"
-	alreadyNotBAGHerErrorMessage                        = "You're not a `bagher` already!"
+	acceptorNotBAGHerErrorMessage       = "You are not a `bagher`! Use the `/join` command to become a `bagher` and accept this challenge."
+	acceptOutdatedChallengeErrorMessage = "You've tried to accept an outdated challenge."
+	alreadyBAGHerErrorMessage           = "You're already a `bagher`!"
+	alreadyNotBAGHerErrorMessage        = "You're not a `bagher` already!"
+	baghOptions                         = "Welcome to BAGH! You have access to the following slash commands:\n" +
+		"- `/join`: adds the `bagher` role and allows you to issue and accept challenges from other BAGH players.\n" +
+		"- `/leave`: removes the `bagher` role. You won't be able to issue challenges, and other player's can't challenge you.\n" +
+		"- `/rules`: enumerates the rules of BAGH.\n" +
+		"- `/bagh`: gives help and instructions.\n" +
+		"You can also use the following user commands. To use a user command, right-click on a user (in this server's members list), and go to Apps.\n" +
+		"- `challenge`: challenges someone to a game of BAGH."
 	challengeAcceptedWhileInGameErrorMessage            = "You're in the middle of a game already."
 	challengeRefusedWhileInGameErrorMessage             = "You're in the middle of a game already."
 	challengerIssuesChallengeWhileInSessionErrorMessage = "You're already busy. Try again after your game is done."
@@ -16,7 +23,7 @@ const (
 	checkPermissionsErrorMessage                        = "There was a problem restoring the BAGH channel.\n" +
 		"- Check that the BAGH App has the correct permissions.\n" +
 		"- If the `bagher` role exists, make sure that it's lower on the role heirarchy than the BAGH role.\n" +
-		"- The `play-bagh` channel should give the BAGH app the following permissions:" +
+		"- The `play-bagh` channel should give the BAGH app the following permissions:\n" +
 		"  - green viewing.\n" +
 		"  - default for everything else."
 	chooseAnActionPrompt          = "Choose one of the following actions."
