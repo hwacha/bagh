@@ -15,7 +15,7 @@ const (
 		"- `/rules`: enumerates the rules of BAGH.\n" +
 		"- `/bagh`: gives help and instructions.\n" +
 		"You can also use the following user commands. To use a user command, right-click on a user (in this server's members list), and go to Apps.\n" +
-		"- `challenge`: challenges someone to a game of BAGH."
+		"- `challenge`: challenges someone to a BAGH match."
 	challengeAcceptedWhileInGameErrorMessage            = "You're in the middle of a game already."
 	challengeRefusedWhileInGameErrorMessage             = "You're in the middle of a game already."
 	challengerIssuesChallengeWhileInSessionErrorMessage = "You're already busy. Try again after your game is done."
@@ -27,27 +27,27 @@ const (
 		"  - green viewing.\n" +
 		"  - default for everything else."
 	chooseAnActionPrompt          = "Choose one of the following actions."
-	exitGamePrompt                = "Exit the game by selecting one of the following options."
-	forfeitConfirmation           = "You have chosen to forfeit this game."
-	gameThreadMissingErrorMessage = "You're in the middle of a game, but the thread has been deleted. Ask an admin to run `/restore` to bring it back."
+	exitMatchPrompt               = "Exit the match by selecting one of the following options."
+	forfeitConfirmation           = "You have chosen to forfeit this match."
+	gameThreadMissingErrorMessage = "You're in the middle of a match, but the thread has been deleted. Ask an admin to run `/restore` to bring it back."
 	goodbyeMessage                = "You can no longer play BAGH in this server. Goodbye!"
 	issueChallengePrompt          = "Issue someone a challenge by right-clicking on their name in the server, going to Apps," +
 		" and clicking the `challenge` option with my icon next to it."
 	leaveWhenInSessionErrorMessage         = "You can't leave BAGH while you're in a game session. `refuse`, `rescind`, or `forfeit` to enable leaving."
-	nonPlayerUsesInGameCommandErrorMessage = "You are not a player in this game of BAGH."
+	nonPlayerUsesInGameCommandErrorMessage = "You are not a player in this match of BAGH."
 	playBAGHChannelMissingErrorMessage     = "The `play-bagh` channel is missing. Ask an admin to run `/restore` to bring it back."
 	playerNotBAGHerJoinPrompt              = "Use the `/join` command to view the BAGH channel and start playing BAGH."
 	refuseOutdatedChallengeErrorMessage    = "You've tried to refuse an outdated challenge."
 	resendLastRoundNotification            = "The message for the current round got deleted. It will now be re-sent."
 	rescindOutdatedChallengeErrorMessage   = "You've tried to rescind an outdated challenge."
-	restoreConfirmation                    = "`play-bagh` channel, `bagher` role, and all ongoing game threads have been restored."
+	restoreConfirmation                    = "`play-bagh` channel, `bagher` role, and all ongoing match threads have been restored."
 	roleMissingErrorMessage                = "The `bagher` role is missing from the server. Ask an admin to run `/restore` to bring it back."
 	selfAcceptChallengeErrorMessage        = "You can't accept your own challenge!"
 	selfChallengeErrorMessage              = "You can't challenge yourself!"
 	undoneSelectionChooseAnActionPrompt    = "You have undone your selection. " + chooseAnActionPrompt
-	votedToDrawConfirmation                = "You have voted to end the game this round in a draw."
-	voteToDrawPassesNotification           = "By unanimous consent, the game ends this round in a **draw**.\n# Draw."
-	voteToDrawWithdrawnConfirmation        = "You have withdrawn your vote to end the game this round in a draw."
+	votedToDrawConfirmation                = "You have voted to end the match this round in a draw."
+	voteToDrawPassesNotification           = "By unanimous consent, the match ends this round in a **draw**.\n# Draw."
+	voteToDrawWithdrawnConfirmation        = "You have withdrawn your vote to end the match this round in a draw."
 	welcomeMessage                         = "Welcome to BAGH! You can now play in this server."
 )
 
@@ -64,7 +64,7 @@ func challengeAcceptNotificationForChallenger(challengee *discordgo.User, thread
 }
 
 func challengeeNotBAGHerError(challengee *discordgo.User) string {
-	return challengee.Mention() + " is not a BAGHer! They cannot be challenged to a game of BAGH. Check for a `bagher` role."
+	return challengee.Mention() + " is not a BAGHer! They cannot be challenged to a BAGH match. Check for a `bagher` role."
 }
 
 func challengeIssuedConfirmationToChallenger(challengee *discordgo.User) string {
@@ -72,7 +72,7 @@ func challengeIssuedConfirmationToChallenger(challengee *discordgo.User) string 
 }
 
 func challengeIssuedNotificationToChallengee(challenger *discordgo.User) string {
-	return challenger.Mention() + " has challenged you to a game of BAGH."
+	return challenger.Mention() + " has challenged you to a BAGH match."
 }
 
 func challengeRefusedConfirmationToChallengee(challenger *discordgo.User) string {
@@ -105,7 +105,7 @@ func gameThreadTitle(challenger *discordgo.Member, challengee *discordgo.Member)
 		challengeeNick = challengee.DisplayName()
 	}
 
-	return challenger.DisplayName() + "'s BAGH Game Against " + challengeeNick
+	return challenger.DisplayName() + "'s BAGH Match Against " + challengeeNick
 }
 
 func memberRemovedNotification(removedPlayer *discordgo.User) string {

@@ -23,17 +23,18 @@ type AwaitingChallengeResponse struct {
 
 func (a *AwaitingChallengeResponse) isSessionState() {}
 
-type GameOngoing struct {
+type MatchOngoing struct {
 	Thread             *discordgo.Channel
 	LastRoundMessageID string
 	Challenger         Player
 	Challengee         Player
+	Game               int
 	Round              int
 }
 
-func (o *GameOngoing) isSessionState() {}
+func (o *MatchOngoing) isSessionState() {}
 
-func (game *GameOngoing) GetPlayer(userID string) *Player {
+func (game *MatchOngoing) GetPlayer(userID string) *Player {
 	if game.Challenger.User.ID == userID {
 		return &game.Challenger
 	}
@@ -43,7 +44,7 @@ func (game *GameOngoing) GetPlayer(userID string) *Player {
 	return nil
 }
 
-func (game *GameOngoing) GetOtherPlayer(userID string) *Player {
+func (game *MatchOngoing) GetOtherPlayer(userID string) *Player {
 	if game.Challenger.User.ID == userID {
 		return &game.Challengee
 	}
@@ -53,14 +54,14 @@ func (game *GameOngoing) GetOtherPlayer(userID string) *Player {
 	return nil
 }
 
-func (game *GameOngoing) ChooseAIMove() {
+func (game *MatchOngoing) ChooseAIMove() {
 	r := rand.IntN(4)
 	game.Challengee.currentAction = Action(r)
 }
 
 // returns whether the game ended, if it was a draw,
 // and if not, who the winner and loser was
-func (game *GameOngoing) IsGameOver() (bool, *Player) {
+func (game *MatchOngoing) IsGameOver() (bool, *Player) {
 	if game.Challenger.HP > 0 && game.Challengee.HP > 0 {
 		return false, nil
 	}
@@ -71,16 +72,30 @@ func (game *GameOngoing) IsGameOver() (bool, *Player) {
 		return true, &game.Challengee
 	}
 
-	// this code shouldn't be reached. If it is, end the game in a draw.
+	// if both player have no health and both have the same HP, draw.
 	return true, nil
+}
+
+func (game *MatchOngoing) IsMatchOver() (bool, *Player) {
+	if game.Challenger.Wins >= GAMES_TO_WIN && game.Challengee.Wins < GAMES_TO_WIN {
+		return true, &game.Challenger
+	}
+	if game.Challengee.Wins >= GAMES_TO_WIN && game.Challenger.Wins < GAMES_TO_WIN {
+		return true, &game.Challengee
+	}
+	if game.Challenger.Wins >= GAMES_TO_WIN && game.Challengee.Wins >= GAMES_TO_WIN {
+		return true, nil
+	}
+	return false, nil
 }
 
 const (
 	BASE_MAX_HEALTH int = 3
 	MAX_BOOST       int = 6
+	GAMES_TO_WIN    int = 3
 )
 
-func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
+func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 	gainedOrRetainedAdvantage := make(map[*Player]bool)
 	shieldJustBroke := make(map[*Player]bool)
 
@@ -212,6 +227,7 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 				damage := 1 + agent.Boost
 
 				patient.HP -= damage
+				patient.HP = max(patient.HP, 0)
 
 				actionLog += "- " + agentMention + " " + actionStrings[Attack] + "s for "
 				if agent.Boost > 0 {
@@ -258,24 +274,10 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 		}
 	}
 
-	// endure/sudden death to prevent potential draw
-	if game.Challenger.HP <= 0 && game.Challengee.HP <= 0 {
-		actionLog += "- Both players have lost all their HP the same turn, "
-		if game.Challenger.HP == game.Challengee.HP {
-			game.Challenger.HP = 1
-			game.Challengee.HP = 1
-			actionLog += "and have the same final HP. They endure with 1HP each."
-		} else if game.Challenger.HP > game.Challengee.HP {
-			actionLog += "but " + game.Challenger.User.Mention() + "'s health was utlimately higher, securing **victory**!"
-		} else {
-			actionLog += "but " + game.Challengee.User.Mention() + "'s health was utlimately higher, securing **victory**!"
-		}
-	}
-
 	actionLog += delayString
 
 	// determine end game
-	isOver, winner := game.IsGameOver()
+	isGameOver, gameWinner := game.IsGameOver()
 
 	secondString := ""
 	thirdString := ""
@@ -287,18 +289,18 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 		if playerAction != Boost {
 			if player.Boost > 0 {
 				player.Boost = 0
-				if !isOver {
+				if !isGameOver {
 					actionLog += "- " + playerMention + "'s boost is **expended to 0**.\n"
 				}
 			}
 		}
 
-		if !isOver && !gainedOrRetainedAdvantage[player] && player.Advantage > 0 {
+		if !isGameOver && !gainedOrRetainedAdvantage[player] && player.Advantage > 0 {
 			player.Advantage--
 			secondString += "- " + playerMention + "'s advantage **falls to " + strconv.Itoa(player.Advantage) + "**.\n"
 		}
 
-		if !isOver && player.ShieldBreakCounter > 0 {
+		if !isGameOver && player.ShieldBreakCounter > 0 {
 			if !shieldJustBroke[player] {
 				player.ShieldBreakCounter--
 			}
@@ -315,23 +317,57 @@ func (game *GameOngoing) NextStateFromActions() (string, bool, *Player) {
 	actionLog += secondString
 	actionLog += thirdString
 
-	if isOver {
-		if winner == nil {
+	if isGameOver {
+		if gameWinner == nil {
 			actionLog += "- Both players have lost all health in the same turn, resulting in a **draw**."
 		} else {
-			actionLog += "- " + winner.User.Mention() + " secures **victory**!"
+			actionLog += "- " + gameWinner.User.Mention() + " secures **victory**!"
 		}
 	} else {
-		game.Challenger.votedToDraw = false
-		game.Challengee.votedToDraw = false
 		game.Round++
 	}
 
-	return actionLog, isOver, winner
+	isMatchOver := false
+	var matchWinner *Player = nil
+
+	if isGameOver {
+		if gameWinner != nil {
+			gameWinner.Wins += 1
+		}
+		actionLog += "\n- The score is | " +
+			game.Challenger.User.Mention() + " **" + strconv.Itoa(game.Challenger.Wins) + "** | " +
+			game.Challengee.User.Mention() + " **" + strconv.Itoa(game.Challengee.Wins) + "** |\n"
+		isMatchOver, matchWinner = game.IsMatchOver()
+
+		if isMatchOver {
+			actionLog += "- The match has ended."
+		} else {
+			game.Game++
+
+			game.Round = 1
+			for _, player := range players {
+				player.HP = 3
+				player.Boost = 0
+				player.Advantage = 0
+				player.ShieldBreakCounter = 0
+				player.currentAction = Unchosen
+				player.actionLocked = false
+				player.votedToDraw = false
+			}
+
+			actionLog += game.GameNumberString()
+		}
+	}
+
+	return actionLog, isMatchOver, matchWinner
 }
 
-func (game *GameOngoing) ToString() string {
-	gameString := "# Round " + strconv.Itoa(game.Round) + "\n"
+func (game *MatchOngoing) GameNumberString() string {
+	return "# Game " + strconv.Itoa(game.Game) + "\n"
+}
+
+func (game *MatchOngoing) ToString() string {
+	gameString := "## Round " + strconv.Itoa(game.Round) + "\n"
 	for _, player := range [2]Player{game.Challenger, game.Challengee} {
 		shield := ""
 		if player.ShieldBreakCounter > 0 {

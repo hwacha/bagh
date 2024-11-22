@@ -12,7 +12,7 @@ func runGameCommandLine() {
 
 	p1 := NewPlayer(&discordgo.User{ID: "1"})
 	p2 := NewPlayer(&discordgo.User{ID: "2"})
-	game := GameOngoing{Thread: nil, LastRoundMessageID: "", Challenger: p1, Challengee: p2, Round: 1}
+	game := MatchOngoing{Thread: nil, LastRoundMessageID: "", Challenger: p1, Challengee: p2, Round: 1}
 
 	redact := func() {
 		fmt.Print("\033[A")

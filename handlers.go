@@ -54,7 +54,7 @@ func findBAGHChannelInGuild(s *discordgo.Session, i *discordgo.Interaction) *dis
 	return channels[index]
 }
 
-func cleanupButtons(s *discordgo.Session, game *GameOngoing) {
+func cleanupButtons(s *discordgo.Session, game *MatchOngoing) {
 	// remove the game buttons from the last round message
 	s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 		ID:         game.LastRoundMessageID,
@@ -83,7 +83,7 @@ func cleanupButtons(s *discordgo.Session, game *GameOngoing) {
 func handleGameActionSelection(action Action) func(*discordgo.Session, *discordgo.InteractionCreate) {
 	return func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		presserID := i.Interaction.Member.User.ID
-		game, found := Games[presserID].(*GameOngoing)
+		game, found := Games[presserID].(*MatchOngoing)
 
 		if !(found && game.Thread.ID == i.Interaction.ChannelID) {
 			ir(s, i, nonPlayerUsesInGameCommandErrorMessage)
@@ -137,10 +137,10 @@ func handleGameActionSelection(action Action) func(*discordgo.Session, *discordg
 
 			cleanupButtons(s, game)
 
-			actionLog, isGameOver, winner := game.NextStateFromActions()
+			actionLog, isMatchOver, winner := game.NextStateFromActions()
 			s.ChannelMessageSend(game.Thread.ID, actionLog)
 
-			if isGameOver {
+			if isMatchOver {
 				delete(Games, game.Challenger.User.ID)
 				delete(Games, game.Challengee.User.ID)
 
@@ -175,7 +175,7 @@ func ir(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
 	})
 }
 
-func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) (*discordgo.Channel, error) {
+func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) (*discordgo.Channel, error, bool) {
 	// create a text channel for bagh, if it doesn't exist
 	channels, _ := s.GuildChannels(guild.ID)
 
@@ -207,9 +207,13 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) (*
 	}
 	s.GuildMemberRoleAdd(guild.ID, ApplicationID, bagherRole.ID)
 
+	var ch *discordgo.Channel
+	var err error
+	shouldPrintRules := false
 	if playBAGHChannel == nil {
+		shouldPrintRules = true
 		// make the channel private, but allow anyone with an opt-in role
-		return s.GuildChannelCreateComplex(guild.ID, discordgo.GuildChannelCreateData{
+		ch, err = s.GuildChannelCreateComplex(guild.ID, discordgo.GuildChannelCreateData{
 			Name: "play-bagh",
 			Type: discordgo.ChannelTypeGuildText,
 			PermissionOverwrites: []*discordgo.PermissionOverwrite{
@@ -231,7 +235,7 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) (*
 			},
 		})
 	} else {
-		return s.ChannelEdit(playBAGHChannel.ID, &discordgo.ChannelEdit{
+		ch, err = s.ChannelEdit(playBAGHChannel.ID, &discordgo.ChannelEdit{
 			PermissionOverwrites: []*discordgo.PermissionOverwrite{
 				{
 					ID:   guild.ID,
@@ -251,6 +255,7 @@ func makeChannelAndRoleForGuild(s *discordgo.Session, guild *discordgo.Guild) (*
 			},
 		})
 	}
+	return ch, err, shouldPrintRules
 }
 
 func sendRules(s *discordgo.Session, interaction *discordgo.Interaction) {
@@ -359,7 +364,7 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 						ir(s, i, playerAcceptOrRefuseChallengePrompt(challenge.Challenger, challengeeDMChannel, challenge.ChallengeeMessage))
 					}
 				} else {
-					game, _ := session.(*GameOngoing)
+					game, _ := session.(*MatchOngoing)
 					if i.Interaction.ChannelID == game.Thread.ID {
 						// case 5: member is in-game, in the thread, but the message has been deleted.
 						if !slices.ContainsFunc(game.Thread.Messages, func(m *discordgo.Message) bool { return m.ID == game.LastRoundMessageID }) {
@@ -436,7 +441,7 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 			},
 			Handler: func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				guild, _ := s.Guild(i.GuildID)
-				ch, err := makeChannelAndRoleForGuild(s, guild)
+				ch, err, _ := makeChannelAndRoleForGuild(s, guild)
 
 				if err != nil {
 					ir(s, i, checkPermissionsErrorMessage)
@@ -448,7 +453,7 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 					if isChallenge {
 						challenge.Channel = ch
 					} else {
-						game, _ := session.(*GameOngoing)
+						game, _ := session.(*MatchOngoing)
 
 						threadToConfirm, _ := s.Channel(game.Thread.ID)
 
@@ -541,17 +546,18 @@ var applicationCommandsAndHandlers = func() map[string]ApplicationCommandAndHand
 					thread, _ := s.ThreadStart(playBAGHChannel.ID, gameThreadTitle(challengerMember, nil),
 						discordgo.ChannelTypeGuildPrivateThread, 60)
 
-					newGame := GameOngoing{
+					newGame := MatchOngoing{
 						Thread:             thread,
 						LastRoundMessageID: "",
 						Challenger:         NewPlayer(challenger),
 						Challengee:         NewPlayer(challengee),
+						Game:               1,
 						Round:              1,
 					}
 					newGame.ChooseAIMove()
 
 					msg, _ := s.ChannelMessageSendComplex(thread.ID, &discordgo.MessageSend{
-						Content:    newGame.ToString(),
+						Content:    newGame.GameNumberString() + newGame.ToString(),
 						Components: chooseActionOrExitGameButtonRow,
 					})
 
@@ -668,11 +674,12 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 			discordgo.ChannelTypeGuildPrivateThread, 60)
 
 		// make a game object and put the thread reference there
-		newGame := GameOngoing{
+		newGame := MatchOngoing{
 			Thread:             thread,
 			LastRoundMessageID: "",
 			Challenger:         NewPlayer(challenger),
 			Challengee:         NewPlayer(acceptor),
+			Game:               1,
 			Round:              1,
 		}
 
@@ -680,7 +687,7 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 		Games[acceptor.ID] = &newGame
 
 		msg, _ := s.ChannelMessageSendComplex(thread.ID, &discordgo.MessageSend{
-			Content:    newGame.ToString(),
+			Content:    newGame.GameNumberString() + newGame.ToString(),
 			Components: chooseActionOrExitGameButtonRow,
 		})
 
@@ -816,7 +823,7 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 	},
 	"choose_action": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		presserID := i.Interaction.Member.User.ID
-		game, found := Games[presserID].(*GameOngoing)
+		game, found := Games[presserID].(*MatchOngoing)
 
 		if !(found && game.Thread.ID == i.Interaction.ChannelID) {
 			ir(s, i, nonPlayerUsesInGameCommandErrorMessage)
@@ -840,9 +847,9 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 			Data: &responseData,
 		})
 	},
-	"exit_game": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	"exit_match": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		presserID := i.Interaction.Member.User.ID
-		game, found := Games[presserID].(*GameOngoing)
+		game, found := Games[presserID].(*MatchOngoing)
 
 		if !(found && game.Thread.ID == i.Interaction.ChannelID) {
 			ir(s, i, nonPlayerUsesInGameCommandErrorMessage)
@@ -856,7 +863,7 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content:    exitGamePrompt,
+				Content:    exitMatchPrompt,
 				Components: voteToDrawOrForfeitButtonRow,
 				Flags:      discordgo.MessageFlagsEphemeral,
 			},
@@ -864,7 +871,7 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 	},
 	"forfeit": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		presserID := i.Interaction.Member.User.ID
-		game, found := Games[presserID].(*GameOngoing)
+		game, found := Games[presserID].(*MatchOngoing)
 
 		if !(found && game.Thread.ID == i.Interaction.ChannelID) {
 			ir(s, i, nonPlayerUsesInGameCommandErrorMessage)
@@ -895,7 +902,7 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 	},
 	"vote_to_draw": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		presserID := i.Interaction.Member.User.ID
-		game, found := Games[presserID].(*GameOngoing)
+		game, found := Games[presserID].(*MatchOngoing)
 
 		if !(found && game.Thread.ID == i.Interaction.ChannelID) {
 			ir(s, i, nonPlayerUsesInGameCommandErrorMessage)
@@ -935,7 +942,7 @@ var messageComponentHandlers = map[string]func(*discordgo.Session, *discordgo.In
 	},
 	"withdraw_vote_to_draw": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		presserID := i.Interaction.Member.User.ID
-		game, found := Games[presserID].(*GameOngoing)
+		game, found := Games[presserID].(*MatchOngoing)
 
 		if !(found && game.Thread.ID == i.Interaction.ChannelID) {
 			ir(s, i, nonPlayerUsesInGameCommandErrorMessage)
@@ -980,7 +987,7 @@ func handleApplicationCommand(s *discordgo.Session, i *discordgo.InteractionCrea
 }
 
 func handleGuildCreate(s *discordgo.Session, gc *discordgo.GuildCreate) {
-	ch, err := makeChannelAndRoleForGuild(s, gc.Guild)
+	ch, err, shouldPrintRules := makeChannelAndRoleForGuild(s, gc.Guild)
 
 	// register application commands
 	for _, commandAndHandler := range applicationCommandsAndHandlers {
@@ -989,18 +996,18 @@ func handleGuildCreate(s *discordgo.Session, gc *discordgo.GuildCreate) {
 
 	// pin a message about BAGH options to the play-bagh channel
 	if err == nil {
-		msg, messageError := s.ChannelMessageSend(ch.ID, baghOptions)
-
-		if messageError != nil {
-			pinErr := s.ChannelMessagePin(ch.ID, msg.ID)
-			if pinErr != nil {
-				fmt.Println(pinErr)
+		if shouldPrintRules {
+			msg, messageError := s.ChannelMessageSend(ch.ID, baghOptions)
+			if messageError != nil {
+				pinErr := s.ChannelMessagePin(ch.ID, msg.ID)
+				if pinErr != nil {
+					fmt.Println(pinErr)
+				}
 			}
 		}
 	} else {
 		fmt.Println(err)
 	}
-
 }
 
 func handleReady(s *discordgo.Session, ready *discordgo.Ready) {
@@ -1032,7 +1039,7 @@ func handleGuildMemberRemove(s *discordgo.Session, gmr *discordgo.GuildMemberRem
 				})
 			}
 		} else {
-			game, _ := session.(*GameOngoing)
+			game, _ := session.(*MatchOngoing)
 			leaver := game.GetPlayer(gmr.Member.User.ID)
 			stayer := game.GetOtherPlayer(gmr.Member.User.ID)
 			delete(Games, stayer.User.ID)
@@ -1053,7 +1060,7 @@ func handleGuildLeave(_ *discordgo.Session, gd *discordgo.GuildDelete) {
 		if isChallenge && challenge.Channel.GuildID == gd.Guild.ID {
 			defer delete(Games, id)
 		} else {
-			game, _ := session.(*GameOngoing)
+			game, _ := session.(*MatchOngoing)
 			if game.Thread.GuildID == gd.Guild.ID {
 				defer delete(Games, id)
 			}

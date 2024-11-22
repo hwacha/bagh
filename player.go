@@ -10,6 +10,7 @@ type Interactions struct {
 type Player struct {
 	User               *discordgo.User
 	Interactions       Interactions
+	Wins               int
 	HP                 int
 	ShieldBreakCounter int
 	Advantage          int

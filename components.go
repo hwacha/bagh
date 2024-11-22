@@ -94,10 +94,10 @@ var chooseActionOrExitGameButtonRow = []discordgo.MessageComponent{
 				CustomID: "choose_action",
 			},
 			discordgo.Button{
-				Label:    "Exit Game",
+				Label:    "Exit Match",
 				Style:    discordgo.SecondaryButton,
 				Disabled: false,
-				CustomID: "exit_game",
+				CustomID: "exit_match",
 			},
 		},
 	},

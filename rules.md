@@ -1,6 +1,8 @@
 # BAGH: **B**oost, **A**ttack, **G**uard, **H**eal
 BAGH is a simple turn-based combat game for two players. The objective is to defeat your opponent by lowering their HP to 0. If both players lose all their HP in a single turn, the game ends in a draw.
 
+A BAGH match win is given to the first player to win 3 BAGH games.
+
 Both players privately choose an action each round: **Boost**, **Attack**, **Guard**, or **Heal**. Actions are then revealed and performed simultaneously.
 ## Actions
 ### Boost
@@ -10,7 +12,7 @@ A player can accumulate up to 6 total boost. Any boosts beyond this will not inc
 
 **NOTE**: *Boost is expended even if an action is unsuccessful or has no effect. The only way to keep boost is to preserve the boost streaks.*
 ### Attack
-**Attack**ing does a point of damage to the opposing player. If the opposing player's HP drops to 0, then the attacker will win. If both players attack each other on the same turn, they will each damage the other. If both players' HP drops below 0, then whoever has more HP wins. If both players have the same final HP, they both endure to the next round with 1HP.
+**Attack**ing does a point of damage to the opposing player. If the opposing player's HP drops to 0, then the attacker will win. If both players attack each other on the same turn, they will each damage the other. This may result in a draw if both players lose all their HP in one turn.
 
 A boosted attack will do one more point of damage for each boost. For example, if a player has a boost of 2 and attacks, they will do 3 points of damage.
 ### Guard
@@ -49,6 +51,3 @@ As another example, if one player attacks with a boost of 5 and the other player
 A boosted heal will heal one more point for each boost, and can overheal one more point past 4HP. For example, a player with 4HP and a boost of 2 will heal by 3 points, but will be capped at a max overheal of 4 base limit + 2 boost = 6HP max overheal.
 
 If an attacker attacks on the same turn as a player tries to heal, they will be **interrupted** before healing. However, if the healer has advantage over the attacker, then the healing will go through along with the attack. For example, if a player with advantage of 1 heals while a player with no advantage attacks, the healing player will take 1 damage but heal by 1, resulting in no net change of HP.
-
-## Controls
-Use application commands to interact with the `BAGH` Bot. To play, type `/join` to gain the `bagher` role. To start a game, right click on a server member, and click on `Apps->challenge` on someone else with the `bagher` role. Once a challenge has been accepted, a new thread will appear. In that thread, you will see the state of the game as well as a log of each action taken.
