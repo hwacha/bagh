@@ -18,22 +18,22 @@ A boosted attack will do one more point of damage for each boost. For example, i
 ### Guard
 **Guard**ing only has an effect if the other player attacks. The guarding player will not take any damage that turn.
 
-The boost of the guarder and attacker are compared. If the guarder has the same boost as the attacker, or if neither player has any boost, then the guarder gains the condition of **advantage**. A guarder can only gain the condition of advantage if the attacker does not already have a higher advantage.
+The boost of the guarder and attacker are compared. If the guarder has the same boost as the attacker, or if neither player has any boost, then the guarder gains **priority**. A guarder can only gain priority if the attacker does not already have a higher priority.
 
 If the guarder has *less* boost than the attacker, they will prevent damage but their **shield** will **break**.
 
-_**Advantage**_
-When both players attack each other, usually they will both deal damage. However, if one or both players have advantage, then their advantage is compared. If one player has higher advantage than the other, or if only one player has advantage, then only that player deals damage from the attack.
+_**Priority**_
+When both players attack each other, usually they will both deal damage. However, if one or both players have priority, then their priority is compared. If one player has higher priority than the other, or if only one player has priority, then only that player deals damage from the attack.
 
-**NOTE**: *Advantage and boost are separate values. Advantage comparisons are separate from boost comparisons.*
+**NOTE**: *Priority and boost are separate values. Priority comparisons are separate from boost comparisons.*
 
-If the guarder has more boost than the attacker, they gain a point more of advantage for every point of boost higher than the attacker's boost. For example, if the guarder has a boost of 5 and the attacker has a boost of 2, then the guarder will gain 1 advantage from a successful guard, plus 3 advantage gained from the boost difference, for a total of 4 gained advantage. If the guarder already has advantage, then the maximum advantage between their old advantage and the new advantage becomes their advantage next turn.
+If the guarder has more boost than the attacker, they gain a point more of priority for every point of boost higher than the attacker's boost. For example, if the guarder has a boost of 5 and the attacker has a boost of 2, then the guarder will gain 1 priority from a successful guard, plus 3 priority gained from the boost difference, for a total of 4 gained priority. If the guarder already has priority, then the maximum priority between their old priority and the new priority becomes their priority next turn.
 
-For example, a player with advantage of 1 and a boost of 2 guards against a player with advantage of 2 and no boost. The guarding player will gain an advantage of 2.
+For example, a player with priority of 1 and a boost of 2 guards against a player with priority of 2 and no boost. The guarding player will gain an priority of 2.
 
-In contrast, a player with advantage of 3 guards against a player with advantage of 1. The gained advantage is less than the guarder's old advantage, so the guarding player will retain advantage of 3.
+In contrast, a player with priority of 3 guards against a player with priority of 1. The gained priority is less than the guarder's old priority, so the guarding player will retain priority of 3.
 
-Unless a player had gained advantage in the current turn, advantage drops by 1 every turn until it reaches 0.
+Unless a player had gained priority in the current turn, priority drops by 1 every turn until it reaches 0.
 
 _**Shield Breaking**_
 If a player's shield is broken, **Guard**ing will not prevent damage from an attack.
@@ -50,4 +50,4 @@ As another example, if one player attacks with a boost of 5 and the other player
 
 A boosted heal will heal one more point for each boost, and can overheal one more point past 4HP. For example, a player with 4HP and a boost of 2 will heal by 3 points, but will be capped at a max overheal of 4 base limit + 2 boost = 6HP max overheal.
 
-If an attacker attacks on the same turn as a player tries to heal, they will be **interrupted** before healing. However, if the healer has advantage over the attacker, then the healing will go through along with the attack. For example, if a player with advantage of 1 heals while a player with no advantage attacks, the healing player will take 1 damage but heal by 1, resulting in no net change of HP.
+If an attacker attacks on the same turn as a player tries to heal, they will be **interrupted** before healing. However, if the healer has priority over the attacker, then the healing will go through along with the attack. For example, if a player with priority of 1 heals while a player with no priority attacks, the healing player will take 1 damage but heal by 1, resulting in no net change of HP.

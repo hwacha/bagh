@@ -54,6 +54,10 @@ func (game *MatchOngoing) GetOtherPlayer(userID string) *Player {
 	return nil
 }
 
+func (game *MatchOngoing) GetPlayers() [2]*Player {
+	return [2]*Player{&game.Challenger, &game.Challengee}
+}
+
 func (game *MatchOngoing) ChooseAIMove() {
 	r := rand.IntN(4)
 	game.Challengee.currentAction = Action(r)
@@ -96,7 +100,7 @@ const (
 )
 
 func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
-	gainedOrRetainedAdvantage := make(map[*Player]bool)
+	gainedOrRetainedPriority := make(map[*Player]bool)
 	shieldJustBroke := make(map[*Player]bool)
 
 	players := [2]*Player{&game.Challenger, &game.Challengee}
@@ -160,8 +164,8 @@ func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 		agentMention := agent.User.Mention()
 		patientMention := patient.User.Mention()
 
-		agentHasAdvantage := agent.Advantage > patient.Advantage
-		patientHasAdvantage := patient.Advantage > agent.Advantage
+		agentHasPriority := agent.Priority > patient.Priority
+		patientHasPriority := patient.Priority > agent.Priority
 		// positive if agent has more boost
 		// negative if patient has more boost
 		// 0 if equal boost
@@ -172,7 +176,7 @@ func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 			attackGoesThrough := true
 			switch patientAction {
 			case Attack:
-				if patientHasAdvantage { // attack has no effect
+				if patientHasPriority { // attack has no effect
 					attackGoesThrough = false
 
 					attackString := actionStrings[Attack]
@@ -200,24 +204,24 @@ func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 						patient.ShieldBreakCounter = boostDifferential
 						shieldJustBroke[patient] = true
 						actionLog += "- " + patientMention + "'s shield **breaks**! Its damage is at " + strconv.Itoa(patient.ShieldBreakCounter) + ".\n"
-					} else if agentHasAdvantage { // agent has advantage
-						actionLog += "- Because " + agentMention + " has advantage over " + patientMention + ", " + patientMention + " gains no advantage.\n"
-					} else { // patient gains or retains advantage
-						oldAdvantage := patient.Advantage
-						patient.Advantage = max(patient.Advantage, (-1*boostDifferential)+1)
+					} else if agentHasPriority { // agent has priority
+						actionLog += "- Because " + agentMention + " has priority over " + patientMention + ", " + patientMention + " gains no priority.\n"
+					} else { // patient gains or retains priority
+						oldPriority := patient.Priority
+						patient.Priority = max(patient.Priority, (-1*boostDifferential)+1)
 
 						actionLog += "- " + patientMention
-						if oldAdvantage == patient.Advantage {
-							actionLog += " retains advantage at **"
+						if oldPriority == patient.Priority {
+							actionLog += " retains priority at **"
 						} else {
-							actionLog += " gains advantage up to **"
+							actionLog += " gains priority up to **"
 						}
-						actionLog += strconv.Itoa(patient.Advantage) + "**.\n"
-						gainedOrRetainedAdvantage[patient] = true
+						actionLog += strconv.Itoa(patient.Priority) + "**.\n"
+						gainedOrRetainedPriority[patient] = true
 					}
 				}
 			case Heal:
-				if !patientHasAdvantage {
+				if !patientHasPriority {
 					// heal is interrupted
 					delayString += "- " + patientMention + "'s " + actionStrings[Heal] + "ing is **interrupted** by " + agentMention + "'s attack.\n"
 				}
@@ -234,8 +238,8 @@ func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 					actionLog += "a boosted "
 				}
 				actionLog += "**" + strconv.Itoa(damage) + "** damage"
-				if agentHasAdvantage {
-					actionLog += " with advantage"
+				if agentHasPriority {
+					actionLog += " with priority"
 				}
 
 				actionLog += ".\n"
@@ -246,14 +250,14 @@ func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 				actionLog += "- " + agentMention + " " + actionStrings[Guard] + "s to **no effect**.\n"
 			}
 		case Heal:
-			if patientAction != Attack || agentHasAdvantage { // heal not interrupted
+			if patientAction != Attack || agentHasPriority { // heal not interrupted
 				maxOverheal := BASE_MAX_HEALTH + 1 + agent.Boost
 				newHP := min(agent.HP+1+agent.Boost, maxOverheal)
 
 				actionLog += "- " + agentMention + " " + actionStrings[Heal] + "s"
 
-				if patientAction == Attack && agentHasAdvantage {
-					actionLog += ", with **advantage preventing interruption** from " + patient.User.Mention() + "'s attack,"
+				if patientAction == Attack && agentHasPriority {
+					actionLog += ", with **priority preventing interruption** from " + patient.User.Mention() + "'s attack,"
 				}
 
 				if agent.HP >= newHP { // no effect
@@ -295,9 +299,9 @@ func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 			}
 		}
 
-		if !isGameOver && !gainedOrRetainedAdvantage[player] && player.Advantage > 0 {
-			player.Advantage--
-			secondString += "- " + playerMention + "'s advantage **falls to " + strconv.Itoa(player.Advantage) + "**.\n"
+		if !isGameOver && !gainedOrRetainedPriority[player] && player.Priority > 0 {
+			player.Priority--
+			secondString += "- " + playerMention + "'s priority **falls to " + strconv.Itoa(player.Priority) + "**.\n"
 		}
 
 		if !isGameOver && player.ShieldBreakCounter > 0 {
@@ -310,9 +314,6 @@ func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 				thirdString += "- The chance of " + playerMention + "'s shield mending next turn is **1 in " + strconv.Itoa(player.ShieldBreakCounter+1) + "**.\n"
 			}
 		}
-
-		player.UnlockAction() // TODO move this out of the scope of next state
-		player.ClearAction()
 	}
 	actionLog += secondString
 	actionLog += thirdString
@@ -348,7 +349,7 @@ func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 			for _, player := range players {
 				player.HP = 3
 				player.Boost = 0
-				player.Advantage = 0
+				player.Priority = 0
 				player.ShieldBreakCounter = 0
 				player.currentAction = Unchosen
 				player.actionLocked = false
@@ -381,15 +382,15 @@ func (game *MatchOngoing) ToString() string {
 			}
 			boost += "\n"
 		}
-		advantage := ""
-		if player.Advantage > 0 {
-			advantage = "- [Adv."
-			if player.Advantage > 1 {
-				advantage += "x" + strconv.Itoa(player.Advantage)
+		priority := ""
+		if player.Priority > 0 {
+			priority = "- [Adv."
+			if player.Priority > 1 {
+				priority += "x" + strconv.Itoa(player.Priority)
 			}
-			advantage += "]\n"
+			priority += "]\n"
 		}
-		gameString += "🤺 " + player.User.Mention() + "\n- ❤️x" + strconv.Itoa(player.HP) + "\n" + shield + boost + advantage + "\n"
+		gameString += "🤺 " + player.User.Mention() + "\n- ❤️x" + strconv.Itoa(player.HP) + "\n" + shield + boost + priority + "\n"
 	}
 	return gameString
 }

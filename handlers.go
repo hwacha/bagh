@@ -132,13 +132,20 @@ func handleGameActionSelection(action Action) func(*discordgo.Session, *discordg
 		}
 
 		if game.Challenger.GetAction() != Unchosen && game.Challengee.GetAction() != Unchosen {
-			game.Challenger.actionLocked = true
-			game.Challengee.actionLocked = true
+
+			for _, player := range game.GetPlayers() {
+				player.actionLocked = true
+			}
 
 			cleanupButtons(s, game)
 
 			actionLog, isMatchOver, winner := game.NextStateFromActions()
 			s.ChannelMessageSend(game.Thread.ID, actionLog)
+
+			for _, player := range game.GetPlayers() {
+				player.ClearAction()
+				player.UnlockAction()
+			}
 
 			if isMatchOver {
 				delete(Games, game.Challenger.User.ID)

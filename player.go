@@ -13,7 +13,7 @@ type Player struct {
 	Wins               int
 	HP                 int
 	ShieldBreakCounter int
-	Advantage          int
+	Priority           int
 	Boost              int
 	currentAction      Action
 	actionLocked       bool
@@ -25,7 +25,7 @@ func NewPlayer(u *discordgo.User) Player {
 		User:          u,
 		Interactions:  Interactions{ChooseAction: nil, ExitGame: nil},
 		HP:            BASE_MAX_HEALTH,
-		Advantage:     0,
+		Priority:      0,
 		Boost:         0,
 		currentAction: Unchosen,
 		actionLocked:  false,
@@ -49,7 +49,7 @@ func (p *Player) UnlockAction() {
 }
 
 func (p *Player) ClearAction() bool {
-	if !p.actionLocked && p.currentAction != Unchosen {
+	if p.actionLocked && p.currentAction != Unchosen {
 		p.currentAction = Unchosen
 		return true
 	}
