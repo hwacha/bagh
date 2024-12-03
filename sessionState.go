@@ -384,7 +384,7 @@ func (game *MatchOngoing) ToString() string {
 		}
 		priority := ""
 		if player.Priority > 0 {
-			priority = "- [Adv."
+			priority = "- [Priority"
 			if player.Priority > 1 {
 				priority += "x" + strconv.Itoa(player.Priority)
 			}
