@@ -131,7 +131,7 @@ func handleGameActionSelection(action Action) func(*discordgo.Session, *discordg
 			actor.Interactions.ChooseAction = append(actor.Interactions.ChooseAction, i.Interaction)
 		}
 
-		if game.Challenger.GetAction() != Unchosen && game.Challengee.GetAction() != Unchosen {
+		if game.Challenger.GetAction() != Unchosen && game.Challengee.GetAction() != Unchosen && !actor.actionLocked {
 
 			for _, player := range game.GetPlayers() {
 				player.actionLocked = true
