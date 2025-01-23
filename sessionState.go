@@ -293,7 +293,7 @@ func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 			}
 		case Heal:
 			if patientAction != Attack || agentHasPriority { // heal not interrupted
-				maxOverheal := BASE_MAX_HEALTH + 1 + agent.Boost
+				maxOverheal := BASE_MAX_HEALTH + 1 + MAX_BOOST
 				newHP := min(agent.HP+1+agent.Boost, maxOverheal)
 
 				actionLog += "- " + agentMention + " " + actionStrings[Heal] + "s"
