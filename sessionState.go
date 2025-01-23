@@ -166,6 +166,7 @@ func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 
 		agentHasPriority := agent.Priority > patient.Priority
 		patientHasPriority := patient.Priority > agent.Priority
+
 		// positive if agent has more boost
 		// negative if patient has more boost
 		// 0 if equal boost
@@ -204,20 +205,61 @@ func (game *MatchOngoing) NextStateFromActions() (string, bool, *Player) {
 						patient.ShieldBreakCounter = boostDifferential
 						shieldJustBroke[patient] = true
 						actionLog += "- " + patientMention + "'s shield **breaks**! Its damage is at " + strconv.Itoa(patient.ShieldBreakCounter) + ".\n"
-					} else if agentHasPriority { // agent has priority
-						actionLog += "- Because " + agentMention + " has priority over " + patientMention + ", " + patientMention + " gains no priority.\n"
-					} else { // patient gains or retains priority
+					} else {
 						oldPriority := patient.Priority
-						patient.Priority = max(patient.Priority, (-1*boostDifferential)+1)
+						totalPriorityGain := 1 // base gain from effective guard
 
-						actionLog += "- " + patientMention
-						if oldPriority == patient.Priority {
-							actionLog += " retains priority at **"
-						} else {
-							actionLog += " gains priority up to **"
+						priorityIsDampened := agent.Priority > 0
+						if priorityIsDampened {
+							// agent's priority dampens priority gain by 1,
+							// which can happen for N potential turns,
+							// preserving payoff equivalence
+							totalPriorityGain -= 1
 						}
-						actionLog += strconv.Itoa(patient.Priority) + "**.\n"
-						gainedOrRetainedPriority[patient] = true
+						totalPriorityGain += -boostDifferential
+						patient.Priority += max(0, totalPriorityGain)
+						// patient gains or retains priority
+
+						if oldPriority == patient.Priority {
+							actionLog += "- Because of " + agentMention + "'s priority, " + patientMention + " gains no priority.\n"
+						} else {
+							// account for overcounted priority w/ depreciation
+							// now instead of later, for the sake of log coherence
+							if oldPriority > 0 {
+								patient.Priority -= 1
+							}
+
+							extraPriorityIsPositive := boostDifferential < 0
+							priorityIsRetained := oldPriority == patient.Priority
+
+							actionLog += "-" + patientMention
+							if priorityIsRetained {
+								actionLog += " retains priority"
+							} else {
+								actionLog += " gains priority"
+							}
+
+							if extraPriorityIsPositive {
+								actionLog += " boosted by " + strconv.Itoa(-boostDifferential)
+
+								if priorityIsDampened {
+									actionLog += " but"
+								}
+							}
+
+							if priorityIsDampened {
+								actionLog += " dampened by 1 by " + agentMention + "'s priority"
+							}
+
+							if priorityIsRetained {
+								actionLog += " at **"
+							} else {
+								actionLog += " up to **"
+							}
+
+							actionLog += strconv.Itoa(patient.Priority) + "**.\n"
+							gainedOrRetainedPriority[patient] = true
+						}
 					}
 				}
 			case Heal:
