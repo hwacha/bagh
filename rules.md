@@ -27,13 +27,13 @@ When both players attack each other, usually they will both deal damage. However
 
 **NOTE**: *Priority and boost are separate values. Priority comparisons are separate from boost comparisons.*
 
-If the guarder has more boost than the attacker, they gain a point more of priority for every point of boost higher than the attacker's boost. For example, if the guarder has a boost of 5 and the attacker has a boost of 2, then the guarder will gain 1 priority from a successful guard, plus 3 priority gained from the boost difference, for a total of 4 gained priority. If the guarder already has priority, then the maximum priority between their old priority and the new priority becomes their priority next turn.
+If the guarder has more boost than the attacker, they gain a point more of priority for every point of boost higher than the attacker's boost. For example, if the guarder has a boost of 5 and the attacker has a boost of 2, then the guarder will gain 1 priority from a successful guard, plus 3 priority gained from the boost difference, for a total of 4 gained priority. If the guarder already has priority, en they will gain only the boost difference, without the extra 1 base priority. You can think of this as losing one priority from depreciation after gaining some that turn.
 
-For example, a player with priority of 1 and a boost of 2 guards against a player with priority of 2 and no boost. The guarding player will gain an priority of 2.
+If an attacker has priority, then the priority a guarder gains will be dampened by 1.
 
-In contrast, a player with priority of 3 guards against a player with priority of 1. The gained priority is less than the guarder's old priority, so the guarding player will retain priority of 3.
+For example, a player with priority of 1 and a boost of 2 guards against a player with priority of 2 and no boost. The priority conferred to the guarding player is calculated as follows: no base priority, since the guarder already had priority that turn, plus 2 from the boost difference, minus 1 from the attacking player's priority (although their priority is at 2, only 1 priority is discounted). The total priority gained by the guarder is therefore 1.
 
-Unless a player had gained priority in the current turn, priority drops by 1 every turn until it reaches 0.
+Unless a player made an effective guard previously in the current turn (i.e., they guarded an attack and their shield did not break), priority drops by 1 every turn until it reaches 0.
 
 _**Shield Breaking**_
 If a player's shield is broken, **Guard**ing will not prevent damage from an attack.
@@ -46,8 +46,8 @@ As another example, if one player attacks with a boost of 5 and the other player
 
 **NOTE**: *It is guaranteed the shield will mend after as many turns as the original boost difference has passed.*
 ### Heal
-**Heal**ing restores HP by a point. Players start with 3HP, and can overheal up to 4HP. Successive unboosted heals will have no effect until a player's HP drops below 4.
+**Heal**ing restores HP by a point. Players start with 3HP, and can overheal up to 10HP. Healing beyond 10HP will have no effect.
 
-A boosted heal will heal one more point for each boost, and can overheal one more point past 4HP. For example, a player with 4HP and a boost of 2 will heal by 3 points, but will be capped at a max overheal of 4 base limit + 2 boost = 6HP max overheal.
+A boosted heal will heal one more point for each boost. For example, a player with 3HP and a boost of 2 will heal 1 base HP plus 2 boosted for a total of 3 gained HP to 6.
 
-If an attacker attacks on the same turn as a player tries to heal, they will be **interrupted** before healing. However, if the healer has priority over the attacker, then the healing will go through along with the attack. For example, if a player with priority of 1 heals while a player with no priority attacks, the healing player will take 1 damage but heal by 1, resulting in no net change of HP.
+If an attacker attacks on the same turn as a player tries to heal, they will be **interrupted** before healing. However, if the healer has priority over the attacker, then the healing will go through along with the attack. The healer's resultant health will be there original health minus damage plus health. For example, if a player with priority of 1 heals while a player with no priority attacks, the healing player will take 1 damage but heal by 1, resulting in no net change of HP.
